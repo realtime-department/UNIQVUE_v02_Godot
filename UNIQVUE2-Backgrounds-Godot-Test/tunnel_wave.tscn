@@ -1,0 +1,45 @@
+[gd_scene format=3 uid="uid://cgtunnel00001"]
+
+[ext_resource type="Script" uid="uid://cgtsim000001" path="res://tunnel_sim.gd" id="1_sim"]
+[ext_resource type="Shader" uid="uid://cgtstrk00001" path="res://tunnel_streak.gdshader" id="2_streak"]
+[ext_resource type="Shader" uid="uid://cgthead00001" path="res://tunnel_head.gdshader" id="3_head"]
+
+[sub_resource type="Environment" id="Environment_tunnel"]
+background_mode = 1
+background_color = Color(0.012, 0.031, 0.069, 1)
+tonemap_mode = 3
+tonemap_white = 6.0
+glow_enabled = true
+glow_intensity = 1.4
+glow_strength = 1.2
+glow_bloom = 0.2
+glow_blend_mode = 2
+glow_hdr_threshold = 0.3
+glow_hdr_scale = 1.0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_streak"]
+render_priority = 0
+shader = ExtResource("2_streak")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_head"]
+render_priority = 0
+shader = ExtResource("3_head")
+shader_parameter/shape = 0
+
+[node name="TunnelWave" type="Node3D"]
+script = ExtResource("1_sim")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_tunnel")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+fov = 70.0
+near = 0.1
+far = 600.0
+
+[node name="Streaks" type="MeshInstance3D" parent="."]
+material_override = SubResource("ShaderMaterial_streak")
+
+[node name="Heads" type="MeshInstance3D" parent="."]
+material_override = SubResource("ShaderMaterial_head")
