@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Background Studio v002</title>
+<style>
+  :root{--bg:#050607;--panel:rgba(13,15,20,.88);--line:rgba(255,255,255,.10);--txt:#eceef3;--txt2:#868d9b;--acc:#fff;--accdim:rgba(255,255,255,.4);--r:11px;--font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:var(--font);overflow:hidden}
+  canvas#c{display:block;width:100%;height:100%;position:fixed;inset:0}
+  .panel{background:var(--panel);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 10px 50px rgba(0,0,0,.6)}
+  /* Linkes Parameter-Panel */
+  #ui{position:fixed;top:14px;left:14px;width:288px;max-height:calc(100% - 28px);padding:15px;overflow-y:auto;z-index:10}
+  #ui h1{font-size:12px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;margin:0 0 2px}
+  #ui .sub{font-size:11px;color:var(--txt2);margin:0 0 12px;line-height:1.4}
+  .sec{font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--txt2);margin:16px 0 9px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  .sec:first-of-type{margin-top:0}
+  .row{margin:10px 0}
+  .row label{display:flex;justify-content:space-between;font-size:11px;color:var(--txt2);margin-bottom:5px}
+  .row label .v{color:var(--txt);font-variant-numeric:tabular-nums}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:3px;background:rgba(255,255,255,.15);outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--acc);border:none;cursor:pointer}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--acc);border:none;cursor:pointer}
+  input[type=color]{-webkit-appearance:none;appearance:none;width:100%;height:28px;border:1px solid var(--line);border-radius:7px;background:none;cursor:pointer;padding:2px}
+  input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+  input[type=color]::-webkit-color-swatch{border:none;border-radius:5px}
+  .btnrow{display:flex;gap:6px;margin-top:4px;flex-wrap:wrap}
+  .btnrow button{flex:1;min-width:42px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--txt2);font:500 10px var(--font);padding:6px;border-radius:6px;cursor:pointer}
+  .btnrow button.on{background:rgba(255,255,255,.13);color:var(--txt);border-color:var(--acc)}
+  .setupsel{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px}
+  .setupsel button{border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--txt);font:500 11px var(--font);padding:9px;border-radius:7px;cursor:pointer}
+  .setupsel button.on{background:rgba(255,255,255,.14);border-color:var(--acc)}
+  /* Rechtes Rundown-Panel */
+  #rundown{position:fixed;top:14px;right:14px;width:270px;max-height:calc(100% - 28px);padding:15px;overflow-y:auto;z-index:10}
+  #rundown h2{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin:0 0 10px}
+  .rd-item{border:1px solid var(--line);border-radius:8px;padding:9px 10px;margin-bottom:7px;cursor:pointer;background:rgba(255,255,255,.03)}
+  .rd-item.active{border-color:var(--acc);background:rgba(255,255,255,.10)}
+  .rd-item .t{font-size:12px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+  .rd-item .m{font-size:10px;color:var(--txt2);margin-top:3px}
+  .rd-item .x{color:var(--txt2);font-size:14px;line-height:1;padding:0 2px;cursor:pointer}
+  .rd-item .x:hover{color:var(--txt)}
+  .minirow{display:flex;gap:6px;align-items:center;margin:7px 0 0}
+  .minirow label{font-size:10px;color:var(--txt2);flex:0 0 auto}
+  .minirow select,.minirow input{flex:1;background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--txt);border-radius:6px;font:500 11px var(--font);padding:5px}
+  .bigbtn{width:100%;border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--txt);font:600 11px var(--font);padding:9px;border-radius:8px;cursor:pointer;margin-top:6px}
+  .bigbtn:hover{background:rgba(255,255,255,.12)}
+  .bigbtn.primary{background:rgba(90,160,255,.22);border-color:rgba(120,180,255,.5)}
+  textarea{width:100%;height:90px;background:rgba(0,0,0,.4);border:1px solid var(--line);color:var(--txt);border-radius:7px;font:400 10px ui-monospace,monospace;padding:8px;resize:vertical}
+  /* Transport unten */
+  #transport{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:10;padding:8px 14px;display:flex;gap:14px;align-items:center;font-size:12px}
+  #transport button{border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--txt);font:600 12px var(--font);padding:7px 14px;border-radius:7px;cursor:pointer}
+  #transport button:hover{background:rgba(255,255,255,.13)}
+  #transport .st{color:var(--txt2);font-variant-numeric:tabular-nums;min-width:120px}
+  #hud{position:fixed;bottom:14px;right:14px;z-index:10;font-size:11px;color:var(--txt2);padding:6px 10px;font-variant-numeric:tabular-nums}
+  .collapsed{display:none}
+  .toggle{cursor:pointer;user-select:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="ui" class="panel">
+  <h1>Background Studio</h1>
+  <p class="sub" id="subline">Modulares Setup · Live-Parameter</p>
+  <div class="sec">Setup</div>
+  <div class="setupsel" id="setupsel"></div>
+  <div id="paramPanel"></div>
+</div>
+
+<div id="rundown" class="panel">
+  <h2>Rundown</h2>
+  <div id="rdList"></div>
+  <button class="bigbtn" id="rdAdd">+ Aktuellen Stand als Szene</button>
+  <button class="bigbtn primary" id="rdPlay">▶ Rundown abspielen</button>
+  <div class="sec toggle" id="ioToggle">Export / Import ▾</div>
+  <div id="ioPanel" class="collapsed">
+    <textarea id="ioText" placeholder="JSON erscheint hier..."></textarea>
+    <button class="bigbtn" id="ioExport">Export →</button>
+    <button class="bigbtn" id="ioImport">← Import</button>
+  </div>
+</div>
+
+<div id="transport" class="panel">
+  <button id="tPrev">‹</button>
+  <span class="st" id="tState">Live</span>
+  <button id="tNext">›</button>
+</div>
+<div id="hud" class="panel">– fps</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js" }}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ============================================================
+   BACKGROUND STUDIO
+   Architektur:
+   - Jedes Setup ist ein gekapseltes Modul mit eigener Scene+Camera.
+     Schnittstelle: { id, name, schema, build(), update(dt,p), render(rt), dispose() }
+   - Studio rendert aktives Modul A in rtA. Bei Transition zusaetzlich B in rtB.
+   - Transition (Z-Push/Wipe) kombiniert rtA+rtB -> rtMix.
+   - Gemeinsame Post-Pipeline (DOF gibt es pro Modul intern; hier global Bloom+Tonemap+Grain/Vignette).
+   - Rundown: Liste {moduleId, params, hold, transition, dur}. Playback blendet nacheinander.
+   - Gleiches Modul -> Parameter-Lerp (Morph). Verschieden -> Z-Push ueber Targets.
+   Module sind isoliert: ein neues Setup = ein Eintrag in REGISTRY.
+   ============================================================ */
+
+const canvas=document.getElementById('c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false,powerPreference:'high-performance'});
+let W=1,H=1,RES=1.0; const DPR_CAP=2;
+function pxDims(){ const d=Math.min(devicePixelRatio,DPR_CAP)*RES; return [Math.max(2,Math.floor(W*d)),Math.max(2,Math.floor(H*d))]; }
+
+function mkRT(){ return new THREE.WebGLRenderTarget(1,1,{minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,wrapS:THREE.ClampToEdgeWrapping,wrapT:THREE.ClampToEdgeWrapping}); }
+const rtA=mkRT(), rtB=mkRT(), rtMix=mkRT(), rtBright=mkRT(), rtBlur=mkRT();
+const quadGeo=new THREE.PlaneGeometry(2,2);
+const quadCam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+function fsPass(uniforms,frag){
+  const sc=new THREE.Scene();
+  const m=new THREE.ShaderMaterial({uniforms,vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}`,fragmentShader:frag,depthTest:false,depthWrite:false});
+  sc.add(new THREE.Mesh(quadGeo,m));
+  return {scene:sc,mat:m,render(t){renderer.setRenderTarget(t||null);renderer.render(sc,quadCam);}};
+}
+
+/* ---- Transition-Pass: Z-Push/Wipe zwischen A und B ----
+   uMode 0=crossfade, 1=Z-Push (B kommt aus der Tiefe nach vorne).
+   uT 0..1 Fortschritt. ---- */
+const transition=fsPass({uA:{value:rtA.texture},uB:{value:rtB.texture},uT:{value:0},uMode:{value:1},uRes:{value:new THREE.Vector2(1,1)}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uA,uB; uniform float uT,uMode; uniform vec2 uRes;
+  void main(){
+    vec3 a=texture2D(uA,vUv).rgb;
+    if(uMode<0.5){
+      vec3 b=texture2D(uB,vUv).rgb;
+      gl_FragColor=vec4(mix(a,b,uT),1.0);
+      return;
+    }
+    // Z-Push: B startet klein in der Mitte (aus der Tiefe) und schiebt sich nach vorne.
+    // Skalierung um Zentrum: bei t=0 stark verkleinert (fern), bei t=1 voll.
+    float scale=mix(0.35,1.0,uT);
+    vec2 c=(vUv-0.5)/scale+0.5;
+    vec3 b = (c.x<0.0||c.x>1.0||c.y<0.0||c.y>1.0) ? vec3(0.0) : texture2D(uB,c).rgb;
+    // Sichtbarkeits-Maske von B: waechst radial von der Mitte (Front kommt nach vorne)
+    float d=length(vUv-0.5)*1.42;
+    float front=smoothstep(uT*1.6, uT*1.6-0.25, d);   // innerhalb der Front = B
+    // zusaetzlich globaler Crossfade in der zweiten Haelfte fuer sauberen Abschluss
+    float mixv=max(front, smoothstep(0.6,1.0,uT));
+    vec3 outc=mix(a, b, clamp(mixv,0.0,1.0));
+    // heller Saum an der Front-Kante (gerichtete Z-Front Akzent)
+    float edge=exp(-pow((d-uT*1.6)*6.0,2.0))*(1.0-uT)*0.6;
+    outc+=vec3(edge);
+    gl_FragColor=vec4(outc,1.0);
+  }`);
+
+/* ---- Globale Post: Bright -> Blur(2x) -> Tonemap(ACES+Grain+Vignette) ---- */
+const bright=fsPass({uTex:{value:rtMix.texture},uThresh:{value:0.5}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uTex; uniform float uThresh;
+  void main(){ vec3 c=texture2D(uTex,vUv).rgb; float l=max(max(c.r,c.g),c.b);
+    gl_FragColor=vec4(c*smoothstep(uThresh,uThresh+0.2,l),1.0); }`);
+const blur=fsPass({uTex:{value:null},uRes:{value:new THREE.Vector2(1,1)},uDir:{value:new THREE.Vector2(1,0)}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uTex; uniform vec2 uRes,uDir;
+  void main(){ vec2 px=uDir/uRes; vec3 s=vec3(0.); float w0=0.204,w1=0.180,w2=0.123,w3=0.066,w4=0.028,w5=0.009;
+    s+=texture2D(uTex,vUv).rgb*w0;
+    s+=(texture2D(uTex,vUv+px*1.5).rgb+texture2D(uTex,vUv-px*1.5).rgb)*w1;
+    s+=(texture2D(uTex,vUv+px*3.5).rgb+texture2D(uTex,vUv-px*3.5).rgb)*w2;
+    s+=(texture2D(uTex,vUv+px*5.5).rgb+texture2D(uTex,vUv-px*5.5).rgb)*w3;
+    s+=(texture2D(uTex,vUv+px*7.5).rgb+texture2D(uTex,vUv-px*7.5).rgb)*w4;
+    s+=(texture2D(uTex,vUv+px*9.5).rgb+texture2D(uTex,vUv-px*9.5).rgb)*w5;
+    gl_FragColor=vec4(s,1.); }`);
+const GLOBAL={ bloom:1.2, thresh:0.5, grain:0.04, vignette:0.5 };
+const tonemap=fsPass({uScene:{value:rtMix.texture},uBloom:{value:rtBright.texture},uRes:{value:new THREE.Vector2(1,1)},uTime:{value:0},uBloomAmt:{value:1.2},uGrain:{value:0.04},uVignette:{value:0.5}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uScene,uBloom; uniform vec2 uRes; uniform float uTime,uBloomAmt,uGrain,uVignette;
+  vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.,1.); }
+  float hash(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+  void main(){
+    vec3 sc=texture2D(uScene,vUv).rgb;
+    vec3 bl=texture2D(uBloom,vUv).rgb;
+    vec3 c=aces(sc + bl*uBloomAmt);
+    float d=length(vUv-0.5);
+    float vig=smoothstep(0.25,0.72,d); c*=1.0-vig*uVignette;   // kraeftige Vignette (Fix)
+    float g=hash(fract(vUv*vec2(uRes.x/3.0,uRes.y/3.0))+uTime*0.37)-0.5;
+    float lum=dot(c,vec3(0.299,0.587,0.114));
+    c+=g*uGrain*(1.0+(1.0-lum)*1.5);                            // sichtbares Grain (Fix)
+    gl_FragColor=vec4(clamp(c,0.0,1.0),1.);
+  }`);
+
+function resizeRTs(){
+  const [pw,ph]=pxDims();
+  rtA.setSize(pw,ph); rtB.setSize(pw,ph); rtMix.setSize(pw,ph);
+  rtBright.setSize(Math.floor(pw/2),Math.floor(ph/2)); rtBlur.setSize(Math.floor(pw/2),Math.floor(ph/2));
+  tonemap.mat.uniforms.uRes.value.set(pw,ph);
+  transition.mat.uniforms.uRes.value.set(pw,ph);
+  // Modul-interne RTs (z.B. Wave-Spiegelung) mitskalieren
+  if(modA && modA.resizeSelf) modA.resizeSelf(pw,ph);
+  if(modB && modB.resizeSelf) modB.resizeSelf(pw,ph);
+}
+
+/* ============================================================
+   MODUL-HILFEN: gemeinsame Streak/Point-Helfer, damit Module schlank bleiben
+   ============================================================ */
+function hexColor(h){ return new THREE.Color(h); }
+
+/* ============================================================
+   SETUP-MODUL: TUNNEL / LIGHT-STREAKS
+   Gekapselt. schema definiert Parameter + UI. Eigene Scene/Camera.
+   ============================================================ */
+function createTunnelModule(){
+  const scene=new THREE.Scene();
+  const camera=new THREE.PerspectiveCamera(70,1,0.1,600);
+  camera.position.set(0,0,0);
+  const NMAX=6000;
+  const Z_NEAR=2, Z_FAR=400;
+  const pz=new Float32Array(NMAX), pang=new Float32Array(NMAX), prad=new Float32Array(NMAX), pseed=new Float32Array(NMAX);
+  // Laufzeit-Parameter (Defaults)
+  const P={ speed:90, streak:1.0, swirl:0.0, driftAng:0.0, driftAmt:0.0,
+            particles:2200, radius:70, headGlow:1.0, opacity:0.9, shape:0,
+            c1:'#0a1a3a', c2:'#3aa0ff', c3:'#ffffff',
+            dof:0.5, focus:0.0 };
+  let RADIUS=P.radius;
+  function spawn(i,far){
+    pz[i]= far ? (Z_NEAR+Math.random()*(Z_FAR-Z_NEAR)) : (Z_FAR*0.5+Math.random()*Z_FAR*0.5);
+    pang[i]=Math.random()*Math.PI*2;
+    prad[i]=(0.15+Math.random()*0.85)*RADIUS;
+    pseed[i]=Math.random();
+  }
+  for(let i=0;i<NMAX;i++) spawn(i,true);
+
+  const U={ uC1:{value:hexColor(P.c1)}, uC2:{value:hexColor(P.c2)}, uC3:{value:hexColor(P.c3)}, uOpacity:{value:P.opacity}, uShape:{value:P.shape} };
+  const segPos=new Float32Array(NMAX*2*3), segCol=new Float32Array(NMAX*2*3), segAlpha=new Float32Array(NMAX*2);
+  const sg=new THREE.BufferGeometry();
+  sg.setAttribute('position',new THREE.BufferAttribute(segPos,3).setUsage(THREE.DynamicDrawUsage));
+  sg.setAttribute('aCol',new THREE.BufferAttribute(segCol,3).setUsage(THREE.DynamicDrawUsage));
+  sg.setAttribute('aAlpha',new THREE.BufferAttribute(segAlpha,1).setUsage(THREE.DynamicDrawUsage));
+  const sMat=new THREE.ShaderMaterial({uniforms:U,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
+    vertexShader:`precision highp float; attribute vec3 aCol; attribute float aAlpha; varying vec3 vCol; varying float vA;
+      void main(){ vCol=aCol; vA=aAlpha; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader:`precision highp float; uniform float uOpacity; varying vec3 vCol; varying float vA;
+      void main(){ gl_FragColor=vec4(vCol, vA*uOpacity); }`});
+  const streaks=new THREE.LineSegments(sg,sMat); scene.add(streaks);
+
+  const hPos=new Float32Array(NMAX*3), hCol=new Float32Array(NMAX*3), hA=new Float32Array(NMAX);
+  const hg=new THREE.BufferGeometry();
+  hg.setAttribute('position',new THREE.BufferAttribute(hPos,3).setUsage(THREE.DynamicDrawUsage));
+  hg.setAttribute('aCol',new THREE.BufferAttribute(hCol,3).setUsage(THREE.DynamicDrawUsage));
+  hg.setAttribute('aAlpha',new THREE.BufferAttribute(hA,1).setUsage(THREE.DynamicDrawUsage));
+  const hMat=new THREE.ShaderMaterial({uniforms:U,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
+    vertexShader:`precision highp float; attribute vec3 aCol; attribute float aAlpha; varying vec3 vCol; varying float vA;
+      void main(){ vCol=aCol; vA=aAlpha; vec4 mv=modelViewMatrix*vec4(position,1.0); float vz=-mv.z;
+        gl_PointSize=clamp(900.0/vz,1.0,26.0); gl_Position=projectionMatrix*mv; }`,
+    fragmentShader:`precision highp float; uniform float uOpacity; uniform int uShape; varying vec3 vCol; varying float vA;
+      float sm(vec2 p){ float r=length(p);
+        if(uShape==0){return smoothstep(0.5,0.0,r);}
+        else if(uShape==1){float d=abs(r-0.34);return smoothstep(0.13,0.0,d);}
+        else if(uShape==2){float s=max(abs(p.x),abs(p.y));return smoothstep(0.46,0.30,s);}
+        else if(uShape==3){vec2 a=abs(p);float sp=smoothstep(0.5,0.0,min(a.x,a.y)*6.0+r*0.6);float co=smoothstep(0.32,0.0,r);return clamp(max(sp,co),0.0,1.0);}
+        else {vec2 a=abs(p);float h=smoothstep(0.10,0.04,a.y)*smoothstep(0.48,0.40,a.x);float v=smoothstep(0.10,0.04,a.x)*smoothstep(0.48,0.40,a.y);return clamp(h+v,0.0,1.0);} }
+      void main(){ float m=sm(gl_PointCoord-0.5); if(m<=0.001) discard;
+        vec3 c=vCol+vec3(1.0)*pow(m,6.0)*1.5; gl_FragColor=vec4(c,m*vA*uOpacity); }`});
+  const heads=new THREE.Points(hg,hMat); scene.add(heads);
+
+  const _c1=new THREE.Color(),_c2=new THREE.Color(),_c3=new THREE.Color(),_cc=new THREE.Color();
+  function update(dt,p){
+    Object.assign(P,p);
+    U.uC1.value.set(P.c1); U.uC2.value.set(P.c2); U.uC3.value.set(P.c3);
+    U.uOpacity.value=P.opacity; U.uShape.value=P.shape|0;
+    RADIUS=P.radius;
+    const N=Math.min(NMAX,P.particles|0), sp=P.speed, stk=P.streak, sw=P.swirl;
+    _c1.copy(U.uC1.value); _c2.copy(U.uC2.value); _c3.copy(U.uC3.value);
+    camera.lookAt(Math.sin(P.driftAng)*P.driftAmt, -Math.cos(P.driftAng)*P.driftAmt, -100);
+    for(let i=0;i<N;i++){
+      pz[i]-=sp*dt;
+      if(sw!==0) pang[i]+=sw*dt*(1.0-pz[i]/Z_FAR)*0.5;
+      if(pz[i]<=Z_NEAR){ spawn(i,false); continue; }
+      const z=pz[i],a=pang[i],rad=prad[i], ca=Math.cos(a),sn=Math.sin(a), x=ca*rad,y=sn*rad;
+      const near=1.0-z/Z_FAR;
+      const len=Math.min(z-Z_NEAR, sp*dt*stk*(1.0+near*6.0));
+      const b=i*6;
+      segPos[b]=x; segPos[b+1]=y; segPos[b+2]=-z; segPos[b+3]=x; segPos[b+4]=y; segPos[b+5]=-(z+len);
+      let tc=near; if(tc<0.5){_cc.copy(_c1).lerp(_c2,tc*2.0);} else {_cc.copy(_c2).lerp(_c3,(tc-0.5)*2.0);}
+      const br=0.35+pseed[i]*0.4+near*0.6;
+      segCol[b]=_cc.r*br; segCol[b+1]=_cc.g*br; segCol[b+2]=_cc.b*br;
+      segCol[b+3]=_cc.r*br*0.2; segCol[b+4]=_cc.g*br*0.2; segCol[b+5]=_cc.b*br*0.2;
+      segAlpha[i*2]=Math.min(1.0,0.3+near); segAlpha[i*2+1]=0.0;
+      const hb=i*3; hPos[hb]=x; hPos[hb+1]=y; hPos[hb+2]=-z;
+      hCol[hb]=_cc.r*br; hCol[hb+1]=_cc.g*br; hCol[hb+2]=_cc.b*br;
+      hA[i]=Math.min(1.0,near*1.2)*P.headGlow;
+    }
+    sg.setDrawRange(0,N*2); sg.attributes.position.needsUpdate=true; sg.attributes.aCol.needsUpdate=true; sg.attributes.aAlpha.needsUpdate=true;
+    hg.setDrawRange(0,N); hg.attributes.position.needsUpdate=true; hg.attributes.aCol.needsUpdate=true; hg.attributes.aAlpha.needsUpdate=true;
+  }
+  const _bgT=new THREE.Color();
+  function render(rt){ camera.aspect=W/H; camera.updateProjectionMatrix();
+    _bgT.set(P.c1).multiplyScalar(0.3);
+    renderer.setRenderTarget(rt); renderer.setClearColor(_bgT,1); renderer.clear(); renderer.render(scene,camera); }
+  function dispose(){ sg.dispose(); hg.dispose(); sMat.dispose(); hMat.dispose(); }
+
+  return {
+    id:'tunnel', name:'Tunnel / Streaks', params:P, update, render, dispose,
+    schema:[
+      {group:'Flug & Streaks', items:[
+        {k:'speed',label:'Fluggeschwindigkeit',min:5,max:260,step:1,dec:0},
+        {k:'streak',label:'Streak-Länge',min:0,max:3,step:.05,dec:2},
+        {k:'swirl',label:'Drall (Rotation)',min:-1.5,max:1.5,step:.05,dec:2},
+        {k:'driftAmt',label:'Flug-Drift (Stärke)',min:0,max:40,step:1,dec:0},
+        {k:'driftAng',dial:true,label:'Flugrichtung'},
+      ]},
+      {group:'Verteilung', items:[
+        {k:'particles',label:'Partikel',min:200,max:6000,step:100,dec:0},
+        {k:'radius',label:'Tunnel-Weite',min:15,max:160,step:5,dec:0},
+      ]},
+      {group:'Farben', colors:[['c1','Fern / dunkel'],['c2','Mittlere Tiefe'],['c3','Nah / heiß']]},
+      {group:'Darstellung', items:[
+        {k:'opacity',label:'Deckkraft',min:0,max:1.5,step:.05,dec:2},
+        {k:'headGlow',label:'Kopf-Glühen',min:0,max:2,step:.05,dec:2},
+      ], shape:'shape'},
+    ],
+  };
+}
+
+/* ============================================================
+   SETUP-MODUL: PARTICLE WAVE / DOT-GRID  (+ Wireframe, Spiegelung)
+   ============================================================ */
+function createWaveModule(){
+  const scene=new THREE.Scene();
+  const camera=new THREE.PerspectiveCamera(55,1,0.1,500);
+  const CAM_POS=new THREE.Vector3(0,7,70), CAM_LOOK=new THREE.Vector3(0,6.2,-60);
+  camera.position.copy(CAM_POS); camera.lookAt(CAM_LOOK);
+  let GW=160, GH=117; const SPAN_X=320, SPAN_Z=420;
+  const P={ amp:5, freq:0.04, wavelength:1.4, warp:0.5, speed:0.3, flow:0.7, dirAng:0.0,
+            yoff:-2, reflect:0.0, density:160, pointSize:2.4, pointOpacity:0.95, wireOpacity:0.0,
+            glow:0.6, shape:0, c1:'#06121f', c2:'#1f6dff', c3:'#bfe8ff' };
+
+  const U={ uC1:{value:hexColor(P.c1)},uC2:{value:hexColor(P.c2)},uC3:{value:hexColor(P.c3)},
+    uTime:{value:0},uFlowT:{value:0},uAmp:{value:P.amp},uFreq:{value:P.freq},uWavelength:{value:P.wavelength},
+    uSpeed:{value:P.speed},uFlow:{value:P.flow},uWarp:{value:P.warp},uPointSize:{value:P.pointSize},
+    uZNear:{value:6},uZFar:{value:140},uGlow:{value:P.glow},uYOff:{value:P.yoff},
+    uPointOpacity:{value:P.pointOpacity},uWireOpacity:{value:P.wireOpacity},uShape:{value:P.shape},
+    uDir:{value:new THREE.Vector2(0,1)} };
+
+  function buildGridGeo(){ const n=GW*GH,p=new Float32Array(n*3); let k=0;
+    for(let j=0;j<GH;j++)for(let i=0;i<GW;i++){ p[k*3]=(i/(GW-1)-0.5)*SPAN_X; p[k*3+1]=0; p[k*3+2]=(j/(GH-1)-0.5)*SPAN_Z; k++; }
+    const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(p,3)); return g; }
+  function buildWireGeo(g){ const idx=[]; for(let j=0;j<GH;j++)for(let i=0;i<GW;i++){ const a=j*GW+i; if(i<GW-1)idx.push(a,a+1); if(j<GH-1)idx.push(a,a+GW); }
+    const w=new THREE.BufferGeometry(); w.setAttribute('position',g.getAttribute('position')); w.setIndex(idx); return w; }
+  let gridGeo=buildGridGeo(), wireGeo=buildWireGeo(gridGeo);
+
+  const VERT=`precision highp float;
+    uniform float uTime,uFlowT,uAmp,uFreq,uWavelength,uSpeed,uFlow,uWarp,uPointSize,uZNear,uZFar,uYOff; uniform vec2 uDir;
+    varying float vH; varying float vFade;
+    float field(vec2 q){ float t=uTime*uSpeed; float s=1.0/max(0.2,uWavelength); q+=uDir*(uFlowT*8.0);
+      vec2 w=vec2(sin(q.y*0.6+t)*0.5,cos(q.x*0.5-t)*0.5)*uWarp; q+=w; float h=0.0;
+      h+=sin((q.x*1.0+q.y*0.6)*s)*0.55; h+=sin((q.x*0.5-q.y*1.3)*s+t*0.7)*0.30; h+=sin(q.x*2.1+q.y*1.7-t*0.5)*0.16; h+=sin(q.x*3.7-q.y*2.9)*0.08; return h; }
+    void main(){ vec3 pos=position; vec2 q=pos.xz*uFreq*6.0; float h=field(q); pos.y=h*uAmp+uYOff; vH=clamp(h*0.5+0.5,0.0,1.0);
+      vec4 mv=modelViewMatrix*vec4(pos,1.0); float vz=-mv.z; float dn=clamp((vz-uZNear)/max(0.001,uZFar-uZNear),0.0,1.0); vFade=1.0-dn*0.85;
+      gl_PointSize=uPointSize*(120.0/vz); gl_Position=projectionMatrix*mv; }`;
+  const pMat=new THREE.ShaderMaterial({uniforms:U,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,vertexShader:VERT,
+    fragmentShader:`precision highp float; uniform vec3 uC1,uC2,uC3; uniform float uPointOpacity,uGlow; uniform int uShape; varying float vH; varying float vFade;
+      float sm(vec2 p){ float r=length(p);
+        if(uShape==0){return smoothstep(0.5,0.0,r);} else if(uShape==1){float d=abs(r-0.34);return smoothstep(0.13,0.0,d);}
+        else if(uShape==2){float s=max(abs(p.x),abs(p.y));return smoothstep(0.46,0.30,s);}
+        else if(uShape==3){vec2 a=abs(p);float sp=smoothstep(0.5,0.0,min(a.x,a.y)*6.0+r*0.6);float co=smoothstep(0.32,0.0,r);return clamp(max(sp,co),0.0,1.0);}
+        else {vec2 a=abs(p);float h=smoothstep(0.10,0.04,a.y)*smoothstep(0.48,0.40,a.x);float v=smoothstep(0.10,0.04,a.x)*smoothstep(0.48,0.40,a.y);return clamp(h+v,0.0,1.0);} }
+      void main(){ vec2 d=gl_PointCoord-0.5; float m=sm(d); if(m<=0.001) discard;
+        vec3 col=mix(uC1,uC2,smoothstep(0.2,0.6,vH)); col=mix(col,uC3,smoothstep(0.55,0.9,vH));
+        float a=m*uPointOpacity*vFade; float crest=smoothstep(0.45,0.85,vH);
+        col+=uC3*m*crest*uGlow*4.0; col+=uC3*pow(m,4.0)*crest*(1.0+uGlow*5.0); gl_FragColor=vec4(col,a); }`});
+  const wMat=new THREE.ShaderMaterial({uniforms:U,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,vertexShader:VERT,
+    fragmentShader:`precision highp float; uniform vec3 uC2,uC3; uniform float uWireOpacity,uGlow; varying float vH; varying float vFade;
+      void main(){ vec3 col=mix(uC2,uC3,smoothstep(0.5,0.95,vH)); float crest=smoothstep(0.45,0.85,vH); col+=uC3*crest*uGlow*1.5; gl_FragColor=vec4(col,uWireOpacity*vFade); }`});
+  let points=new THREE.Points(gridGeo,pMat); scene.add(points);
+  let wire=new THREE.LineSegments(wireGeo,wMat); scene.add(wire);
+
+  function rebuild(){ scene.remove(points); scene.remove(wire); gridGeo.dispose(); wireGeo.dispose();
+    gridGeo=buildGridGeo(); wireGeo=buildWireGeo(gridGeo); points=new THREE.Points(gridGeo,pMat); scene.add(points); wire=new THREE.LineSegments(wireGeo,wMat); scene.add(wire); }
+
+  // Bildraum-Spiegelung (eigener Merge in modul-eigenes RT)
+  const rtSelf=mkRT(), rtMerge2=mkRT();
+  const merge=fsPass({uScene:{value:rtSelf.texture},uReflect:{value:0},uMirrorY:{value:0.5}},`
+    precision highp float; varying vec2 vUv; uniform sampler2D uScene; uniform float uReflect,uMirrorY;
+    void main(){ vec3 base=texture2D(uScene,vUv).rgb;
+      if(vUv.y>uMirrorY && uReflect>0.001){ float sy=2.0*uMirrorY-vUv.y; if(sy>=0.0){
+        vec3 r=texture2D(uScene,vec2(vUv.x,sy)).rgb;
+        // Himmel (dunkler Bereich oben) wird durch das Spiegelbild ERSETZT, nicht addiert.
+        // base oben ist normalerweise ~0 (Himmel) -> mix zeigt die Reflexion, kein Ueberstrahlen.
+        base = mix(base, r, uReflect*0.85);
+      } }
+      gl_FragColor=vec4(base,1.0); }`);
+  const _hp=new THREE.Vector3();
+  function horizonY(){ _hp.set(CAM_POS.x,P.yoff,CAM_POS.z-4000); _hp.project(camera); return 0.5+_hp.y*0.5; }
+
+  function update(dt,p){ Object.assign(P,p);
+    U.uC1.value.set(P.c1); U.uC2.value.set(P.c2); U.uC3.value.set(P.c3);
+    U.uAmp.value=P.amp; U.uFreq.value=P.freq; U.uWavelength.value=P.wavelength; U.uWarp.value=P.warp;
+    U.uSpeed.value=P.speed; U.uFlow.value=P.flow; U.uYOff.value=P.yoff; U.uPointSize.value=P.pointSize;
+    U.uPointOpacity.value=P.pointOpacity; U.uWireOpacity.value=P.wireOpacity; U.uGlow.value=P.glow; U.uShape.value=P.shape|0;
+    U.uDir.value.set(Math.sin(P.dirAng),-Math.cos(P.dirAng));
+    U.uTime.value+=dt;
+    U.uFlowT.value+=dt*P.flow;   // Flow eigene Zeitbasis, unabhaengig von Tempo
+    const want=P.density|0; if(want!==GW){ GW=want; GH=Math.round(GW*0.73); rebuild(); }
+  }
+  const _bg=new THREE.Color();
+  function render(rt){ camera.aspect=W/H; camera.updateProjectionMatrix();
+    U.uZFar.value=camera.position.z+SPAN_Z*0.5+20;
+    _bg.set(P.c1).multiplyScalar(0.35);   // ferne Hintergrundfarbe, abgedunkelt
+    if(P.reflect>0.001){
+      renderer.setRenderTarget(rtSelf); renderer.setClearColor(_bg,1); renderer.clear(); renderer.render(scene,camera);
+      merge.mat.uniforms.uScene.value=rtSelf.texture; merge.mat.uniforms.uReflect.value=P.reflect; merge.mat.uniforms.uMirrorY.value=Math.min(0.95,Math.max(0.05,horizonY()));
+      merge.render(rt);
+    } else {
+      renderer.setRenderTarget(rt); renderer.setClearColor(_bg,1); renderer.clear(); renderer.render(scene,camera);
+    }
+  }
+  function dispose(){ gridGeo.dispose(); wireGeo.dispose(); pMat.dispose(); wMat.dispose(); rtSelf.dispose(); rtMerge2.dispose(); }
+  function resizeSelf(w,h){ rtSelf.setSize(w,h); rtMerge2.setSize(w,h); }
+
+  return { id:'wave', name:'Particle Wave', params:P, update, render, dispose, resizeSelf,
+    schema:[
+      {group:'Form & Bewegung', items:[
+        {k:'amp',label:'Wellenhöhe',min:0,max:20,step:.2,dec:2},
+        {k:'freq',label:'Frequenz (Detail)',min:0.01,max:0.12,step:.002,dec:3},
+        {k:'wavelength',label:'Wellenlänge',min:0.3,max:3,step:.05,dec:2},
+        {k:'warp',label:'Unregelmäßigkeit',min:0,max:1.5,step:.02,dec:2},
+        {k:'speed',label:'Tempo',min:0,max:1.5,step:.02,dec:2},
+        {k:'flow',label:'Fließgeschwindigkeit',min:0,max:1.5,step:.02,dec:2},
+        {k:'dirAng',dial:true,label:'Fließrichtung'},
+      ]},
+      {group:'Komposition', items:[
+        {k:'yoff',label:'Höhen-Position (Y)',min:-30,max:30,step:.5,dec:1},
+        {k:'reflect',label:'Spiegelung (Stärke)',min:0,max:1,step:.02,dec:2},
+      ]},
+      {group:'Farben', colors:[['c1','Tal / Hintergrund'],['c2','Mittlere Höhe'],['c3','Kamm / Glanz']]},
+      {group:'Darstellung', items:[
+        {k:'pointSize',label:'Punkt-Größe',min:0.5,max:6,step:.1,dec:1},
+        {k:'pointOpacity',label:'Punkt-Deckkraft',min:0,max:1.5,step:.05,dec:2},
+        {k:'wireOpacity',label:'Linien (Polygon-Grid)',min:0,max:1.5,step:.05,dec:2},
+        {k:'glow',label:'Kamm-Glühen',min:0,max:1.5,step:.05,dec:2},
+        {k:'density',label:'Gitter-Dichte',min:25,max:340,step:5,dec:0},
+      ], shape:'shape'},
+    ],
+  };
+}
+
+/* ============================================================
+   MODUL-REGISTRY  (weitere Module werden hier eingetragen)
+   ============================================================ */
+const REGISTRY = {
+  tunnel: createTunnelModule,
+  wave: createWaveModule,
+  // plexus: createPlexusModule,
+  // silk: createSilkModule,
+};
+const REG_ORDER=['tunnel','wave'];   // Reihenfolge im UI (waechst)
+
+/* ============================================================
+   STUDIO-STATE
+   ============================================================ */
+let modA=null, modB=null;     // aktives Modul (A), Transition-Ziel (B)
+let activeId=null;
+let trans={active:false, t:0, dur:1.2, mode:1, fromParams:null, toParams:null, sameModule:false};
+
+function instantiate(id){ const m=REGISTRY[id](); const [pw,ph]=pxDims(); if(m.resizeSelf) m.resizeSelf(pw,ph); return m; }
+function setActive(id){
+  if(modA && modA.dispose) modA.dispose();
+  modA=instantiate(id); activeId=id;
+  buildParamPanel();
+  buildSetupSel();
+  document.getElementById('subline').textContent=modA.name+' · Live-Parameter';
+}
+
+/* ============================================================
+   PARAMETER-UI (dynamisch aus schema)
+   ============================================================ */
+const paramPanel=document.getElementById('paramPanel');
+const SHAPES=['Dot','Ring','Square','Star','Cross'];
+function buildParamPanel(){
+  paramPanel.innerHTML='';
+  const P=modA.params;
+  modA.schema.forEach(sec=>{
+    const h=document.createElement('div'); h.className='sec'; h.textContent=sec.group; paramPanel.appendChild(h);
+    if(sec.colors){ sec.colors.forEach(([key,lab])=>{
+      const row=document.createElement('div'); row.className='row'; row.innerHTML=`<label><span>${lab}</span></label>`;
+      const inp=document.createElement('input'); inp.type='color'; inp.value=P[key];
+      inp.oninput=()=>{ P[key]=inp.value; }; row.appendChild(inp); paramPanel.appendChild(row);
+    }); }
+    if(sec.items){ sec.items.forEach(it=>{
+      if(it.dial){ // 360 Grad Drehrad
+        const lab=document.createElement('div'); lab.style.cssText='display:flex;justify-content:space-between;font-size:11px;color:var(--txt2);margin:10px 0 5px';
+        lab.innerHTML=`<span>${it.label}</span><span class="v" id="dlv_${it.k}">0°</span>`; paramPanel.appendChild(lab);
+        const wrap=document.createElement('div'); wrap.style.cssText='display:flex;justify-content:center;margin:2px 0';
+        wrap.innerHTML=`<svg width="70" height="70" viewBox="0 0 78 78" style="cursor:pointer;touch-action:none" id="dl_${it.k}">
+          <circle cx="39" cy="39" r="33" fill="rgba(255,255,255,.04)" stroke="var(--line)"/>
+          <circle cx="39" cy="39" r="3" fill="var(--txt2)"/>
+          <line x1="39" y1="39" x2="39" y2="10" stroke="var(--acc)" stroke-width="2" stroke-linecap="round" id="dlp_${it.k}"/>
+          <circle cx="39" cy="10" r="4.5" fill="var(--acc)" id="dlk_${it.k}"/></svg>`;
+        paramPanel.appendChild(wrap);
+        const svg=wrap.querySelector('svg'),ptr=wrap.querySelector('line'),knob=wrap.querySelector('circle:last-of-type');
+        const setA=rad=>{ P[it.k]=rad; const R=29,px=39+Math.sin(rad)*R,py=39-Math.cos(rad)*R;
+          ptr.setAttribute('x2',px.toFixed(1));ptr.setAttribute('y2',py.toFixed(1));knob.setAttribute('cx',px.toFixed(1));knob.setAttribute('cy',py.toFixed(1));
+          let dg=Math.round(rad*180/Math.PI); if(dg<0)dg+=360; document.getElementById('dlv_'+it.k).textContent=dg+'°'; };
+        const pa=ev=>{const r=svg.getBoundingClientRect();const x=(ev.touches?ev.touches[0].clientX:ev.clientX)-r.left-39*(r.width/78);const y=(ev.touches?ev.touches[0].clientY:ev.clientY)-r.top-39*(r.height/78);return Math.atan2(x,-y);};
+        let dr=false; svg.addEventListener('pointerdown',ev=>{dr=true;setA(pa(ev));svg.setPointerCapture(ev.pointerId);});
+        svg.addEventListener('pointermove',ev=>{if(dr){setA(pa(ev));ev.preventDefault();}}); svg.addEventListener('pointerup',()=>dr=false);
+        setA(P[it.k]||0);
+      } else {
+        const row=document.createElement('div'); row.className='row'; const dec=it.dec||0;
+        row.innerHTML=`<label><span>${it.label}</span><span class="v" id="pv_${it.k}">${(+P[it.k]).toFixed(dec)}</span></label>`;
+        const inp=document.createElement('input'); inp.type='range'; inp.min=it.min; inp.max=it.max; inp.step=it.step; inp.value=P[it.k];
+        inp.oninput=()=>{ P[it.k]=+inp.value; document.getElementById('pv_'+it.k).textContent=(+inp.value).toFixed(dec); };
+        row.appendChild(inp); paramPanel.appendChild(row);
+      }
+    }); }
+    if(sec.shape){ const lab=document.createElement('label'); lab.style.cssText='display:block;font-size:11px;color:var(--txt2);margin:8px 0 5px'; lab.textContent='Form';
+      paramPanel.appendChild(lab);
+      const wrap=document.createElement('div'); wrap.className='btnrow';
+      SHAPES.forEach((s,idx)=>{ const b=document.createElement('button'); b.textContent=s; if((P[sec.shape]|0)===idx)b.className='on';
+        b.onclick=()=>{ P[sec.shape]=idx; [...wrap.children].forEach((c,i)=>c.className=i===idx?'on':''); }; wrap.appendChild(b); });
+      paramPanel.appendChild(wrap);
+    }
+  });
+  // Globale Post-Sektion (fuer alle Module gleich)
+  const gh=document.createElement('div'); gh.className='sec'; gh.textContent='Post (global)'; paramPanel.appendChild(gh);
+  const gItems=[['bloom','Bloom-Stärke',0,5,.05],['thresh','Bloom-Schwelle',0,1.5,.02],['grain','Grain',0,.3,.01],['vignette','Vignette',0,1,.05]];
+  gItems.forEach(([k,lab,mn,mx,st])=>{ const row=document.createElement('div'); row.className='row';
+    row.innerHTML=`<label><span>${lab}</span><span class="v" id="gv_${k}">${GLOBAL[k].toFixed(2)}</span></label>`;
+    const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=GLOBAL[k];
+    inp.oninput=()=>{ GLOBAL[k]=+inp.value; document.getElementById('gv_'+k).textContent=(+inp.value).toFixed(2); };
+    row.appendChild(inp); paramPanel.appendChild(row); });
+  const rh=document.createElement('div'); rh.className='sec'; rh.textContent='Render-Auflösung'; paramPanel.appendChild(rh);
+  const rw=document.createElement('div'); rw.className='btnrow';
+  [['½',0.5],['¾',0.75],['1×',1.0]].forEach(([l,v])=>{ const b=document.createElement('button'); b.textContent=l; if(Math.abs(v-RES)<.01)b.className='on';
+    b.onclick=()=>{ RES=v; resize(); [...rw.children].forEach(c=>c.className=c.textContent===l?'on':''); }; rw.appendChild(b); });
+  paramPanel.appendChild(rw);
+}
+
+function refreshPanelValues(){
+  const P=modA.params;
+  modA.schema.forEach(sec=>{
+    (sec.items||[]).forEach(it=>{
+      if(it.dial) return;
+      const vEl=document.getElementById('pv_'+it.k); const inp=vEl&&vEl.parentElement.parentElement.querySelector('input[type=range]');
+      if(vEl){ vEl.textContent=(+P[it.k]).toFixed(it.dec||0); if(inp) inp.value=P[it.k]; }
+    });
+  });
+  ['bloom','thresh','grain','vignette'].forEach(k=>{ const vEl=document.getElementById('gv_'+k); if(vEl){ vEl.textContent=GLOBAL[k].toFixed(2); const inp=vEl.parentElement.parentElement.querySelector('input[type=range]'); if(inp) inp.value=GLOBAL[k]; } });
+}
+function buildSetupSel(){
+  const el=document.getElementById('setupsel'); el.innerHTML='';
+  REG_ORDER.forEach(id=>{ const m=REGISTRY[id]; const tmpName={tunnel:'Tunnel / Streaks',wave:'Particle Wave',plexus:'Plexus',silk:'Silk'}[id]||id;
+    const b=document.createElement('button'); b.textContent=tmpName; if(id===activeId)b.className='on';
+    b.onclick=()=>{ if(id!==activeId) setActive(id); }; el.appendChild(b); });
+}
+
+/* ============================================================
+   RUNDOWN-ENGINE
+   ============================================================ */
+let rundown=[];   // [{moduleId, params, hold, transition('zpush'|'cross'), dur}]
+let rdPlaying=false, rdIndex=0, rdHoldT=0, loadedIndex=-1;
+
+function snapshot(){ return { moduleId:activeId, params:JSON.parse(JSON.stringify(modA.params)), global:JSON.parse(JSON.stringify(GLOBAL)), hold:4.0, transition:'zpush', dur:1.5 }; }
+function addRundownItem(){ rundown.push(snapshot()); buildRundownList(); }
+function buildRundownList(){
+  const el=document.getElementById('rdList'); el.innerHTML='';
+  rundown.forEach((it,i)=>{
+    const d=document.createElement('div'); d.className='rd-item'+(i===rdIndex&&rdPlaying?' active':'')+(i===loadedIndex&&!rdPlaying?' active':'');
+    const nm={tunnel:'Tunnel',wave:'Wave',plexus:'Plexus',silk:'Silk'}[it.moduleId]||it.moduleId;
+    const ld=(i===loadedIndex)?' ● geladen':'';
+    d.innerHTML=`<div class="t">${i+1}. ${nm}<span style="font-size:9px;color:var(--txt2);font-weight:400">${ld}</span><span class="x" data-i="${i}">✕</span></div>
+      <div class="m">Hold ${it.hold}s · ${it.transition} ${it.dur}s</div>
+      <div class="minirow"><label>Hold</label><input type="number" min="0" max="60" step="0.5" value="${it.hold}" data-h="${i}"></div>
+      <div class="minirow"><label>Trans</label><select data-t="${i}"><option value="zpush"${it.transition==='zpush'?' selected':''}>Z-Push</option><option value="cross"${it.transition==='cross'?' selected':''}>Crossfade</option></select></div>
+      <div class="minirow"><label>Dauer</label><input type="number" min="0.2" max="10" step="0.1" value="${it.dur}" data-d="${i}"></div>
+      <div class="btnrow"><button data-load="${i}">Laden</button><button data-upd="${i}">⟳ Stand speichern</button></div>`;
+    d.querySelector('.x').onclick=(e)=>{ e.stopPropagation(); rundown.splice(i,1); if(loadedIndex===i)loadedIndex=-1; else if(loadedIndex>i)loadedIndex--; buildRundownList(); };
+    d.querySelector('[data-h]').onchange=e=>{ it.hold=+e.target.value; };
+    d.querySelector('[data-t]').onchange=e=>{ it.transition=e.target.value; };
+    d.querySelector('[data-d]').onchange=e=>{ it.dur=+e.target.value; };
+    d.querySelector('[data-load]').onclick=(e)=>{ e.stopPropagation(); loadedIndex=i; applySnapshot(it); buildRundownList(); };
+    d.querySelector('[data-upd]').onclick=(e)=>{ e.stopPropagation(); // aktuellen Live-Stand in diesen Eintrag schreiben
+      it.moduleId=activeId; it.params=JSON.parse(JSON.stringify(modA.params)); it.global=JSON.parse(JSON.stringify(GLOBAL)); loadedIndex=i; buildRundownList(); };
+    el.appendChild(d);
+  });
+}
+function applySnapshot(it){
+  if(it.moduleId!==activeId) setActive(it.moduleId);
+  Object.assign(modA.params, it.params);
+  if(it.global) Object.assign(GLOBAL, it.global);
+  buildParamPanel();
+}
+
+/* ---- Rundown-Playback ---- */
+function startRundown(){ if(rundown.length<1) return; rdPlaying=true; rdIndex=0; rdHoldT=0; applySnapshot(rundown[0]); setTransport(); buildRundownList(); }
+function stopRundown(){ rdPlaying=false; trans.active=false; setTransport(); buildRundownList(); }
+function gotoNext(){
+  if(rundown.length<2) return;
+  const next=(rdIndex+1)%rundown.length;
+  beginTransition(rundown[next]);
+  rdIndex=next; buildRundownList();
+}
+function beginTransition(targetSnap){
+  const same = targetSnap.moduleId===activeId;
+  trans.sameModule=same;
+  trans.mode = targetSnap.transition==='cross'?0:1;
+  trans.dur = targetSnap.dur||1.5;
+  trans.t=0; trans.active=true;
+  trans.targetSnap=targetSnap;
+  if(same){
+    // Parameter-Morph: from = aktuelle Params, to = Ziel
+    trans.fromParams=JSON.parse(JSON.stringify(modA.params));
+    trans.toParams=targetSnap.params;
+    trans.fromGlobal=JSON.parse(JSON.stringify(GLOBAL));
+    trans.toGlobal=targetSnap.global||GLOBAL;
+  } else {
+    // verschiedene Module: B instanziieren, in rtB rendern, Z-Push
+    if(modB && modB.dispose) modB.dispose();
+    modB=instantiate(targetSnap.moduleId);
+    modB.update(0.0001, targetSnap.params);
+  }
+}
+function finishTransition(){
+  trans.active=false;
+  const snap=trans.targetSnap;
+  if(trans.sameModule){
+    Object.assign(modA.params, snap.params); if(snap.global) Object.assign(GLOBAL,snap.global);
+  } else {
+    if(modA && modA.dispose) modA.dispose();
+    modA=modB; modB=null; activeId=snap.moduleId;
+    if(snap.global) Object.assign(GLOBAL,snap.global);
+    buildSetupSel();
+  }
+  buildParamPanel();
+}
+
+function lerp(a,b,t){ return a+(b-a)*t; }
+function lerpParams(from,to,t,target){
+  for(const k in to){
+    if(typeof to[k]==='number' && typeof from[k]==='number') target[k]=lerp(from[k],to[k],t);
+    else if(typeof to[k]==='string' && /^#/.test(to[k]) && /^#/.test(from[k]||'')){
+      const ca=new THREE.Color(from[k]), cb=new THREE.Color(to[k]); ca.lerp(cb,t); target[k]='#'+ca.getHexString();
+    } else target[k]=to[k];
+  }
+}
+
+/* ============================================================
+   TRANSPORT / IO UI
+   ============================================================ */
+function setTransport(){ document.getElementById('tState').textContent = rdPlaying ? ('Rundown '+(rdIndex+1)+'/'+rundown.length) : 'Live'; }
+document.getElementById('rdAdd').onclick=addRundownItem;
+document.getElementById('rdPlay').onclick=()=>{ if(rdPlaying) stopRundown(); else startRundown(); document.getElementById('rdPlay').textContent=rdPlaying?'■ Stop':'▶ Rundown abspielen'; };
+document.getElementById('tNext').onclick=()=>{ if(rundown.length>1){ if(!rdPlaying){rdPlaying=true;} gotoNext(); } };
+document.getElementById('tPrev').onclick=()=>{ if(rundown.length>1){ const p=(rdIndex-1+rundown.length)%rundown.length; beginTransition(rundown[p]); rdIndex=p; buildRundownList(); } };
+document.getElementById('ioToggle').onclick=()=>{ document.getElementById('ioPanel').classList.toggle('collapsed'); };
+document.getElementById('ioExport').onclick=()=>{ document.getElementById('ioText').value=JSON.stringify(rundown,null,1); };
+document.getElementById('ioImport').onclick=()=>{ try{ rundown=JSON.parse(document.getElementById('ioText').value); rdIndex=0; buildRundownList(); }catch(e){ alert('JSON ungültig'); } };
+
+/* ============================================================
+   RESIZE + LOOP
+   ============================================================ */
+function resize(){ W=innerWidth; H=innerHeight; renderer.setSize(W,H,false); renderer.setPixelRatio(1); resizeRTs(); }
+addEventListener('resize',resize);
+
+setActive('tunnel'); resize();
+
+let last=performance.now(),fAcc=0,fN=0,fT=0; const hud=document.getElementById('hud');
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000); last=now; const t=now/1000;
+  tonemap.mat.uniforms.uTime.value=t;
+
+  // Rundown-Playback-Logik
+  if(rdPlaying && !trans.active && rundown.length>1){
+    rdHoldT+=dt;
+    const cur=rundown[rdIndex];
+    if(rdHoldT >= (cur.hold||4)){ rdHoldT=0; gotoNext(); }
+  }
+
+  // Transition-Fortschritt
+  if(trans.active){
+    trans.t += dt/Math.max(0.1,trans.dur);
+    if(trans.sameModule){
+      // Parameter-Morph live anwenden
+      lerpParams(trans.fromParams, trans.toParams, Math.min(1,trans.t), modA.params);
+      for(const k in trans.toGlobal){ if(typeof trans.toGlobal[k]==='number') GLOBAL[k]=lerp(trans.fromGlobal[k],trans.toGlobal[k],Math.min(1,trans.t)); }
+      refreshPanelValues();   // Slider-Anzeigen folgen dem Morph
+    }
+    if(trans.t>=1){ finishTransition(); }
+  }
+
+  // --- Render aktives Modul A -> rtA ---
+  modA.update(dt, modA.params);
+  modA.render(rtA);
+
+  let mixTex=rtA.texture;
+  if(trans.active && !trans.sameModule && modB){
+    // Modul B -> rtB, dann Z-Push kombinieren -> rtMix
+    modB.update(dt, trans.targetSnap.params);
+    modB.render(rtB);
+    transition.mat.uniforms.uA.value=rtA.texture;
+    transition.mat.uniforms.uB.value=rtB.texture;
+    transition.mat.uniforms.uT.value=Math.min(1,trans.t);
+    transition.mat.uniforms.uMode.value=trans.mode;
+    transition.render(rtMix);
+    mixTex=rtMix.texture;
+  }
+
+  // --- Globale Post: Bloom + Tonemap ---
+  bright.mat.uniforms.uTex.value=mixTex; bright.mat.uniforms.uThresh.value=GLOBAL.thresh; bright.render(rtBright);
+  blur.mat.uniforms.uTex.value=rtBright.texture; blur.mat.uniforms.uRes.value.set(rtBright.width,rtBright.height);
+  blur.mat.uniforms.uDir.value.set(1,0); blur.render(rtBlur);
+  blur.mat.uniforms.uTex.value=rtBlur.texture; blur.mat.uniforms.uDir.value.set(0,1); blur.render(rtBright);
+  blur.mat.uniforms.uTex.value=rtBright.texture; blur.mat.uniforms.uDir.value.set(2.5,0); blur.render(rtBlur);
+  blur.mat.uniforms.uTex.value=rtBlur.texture; blur.mat.uniforms.uDir.value.set(0,2.5); blur.render(rtBright);
+  tonemap.mat.uniforms.uScene.value=mixTex; tonemap.mat.uniforms.uBloom.value=rtBright.texture;
+  tonemap.mat.uniforms.uBloomAmt.value=GLOBAL.bloom; tonemap.mat.uniforms.uGrain.value=GLOBAL.grain; tonemap.mat.uniforms.uVignette.value=GLOBAL.vignette;
+  tonemap.render(null);
+
+  fAcc+=1/dt; fN++; fT+=dt; if(fT>0.5){ hud.textContent=Math.round(fAcc/fN)+' fps · '+activeId+(trans.active?' · ⇄':''); fAcc=fN=fT=0; }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

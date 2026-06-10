@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Silk 3D v003</title>
+<style>
+  :root{--bg:#050607;--panel:rgba(13,15,20,.86);--line:rgba(255,255,255,.10);--txt:#eceef3;--txt2:#868d9b;--acc:#fff;--r:11px;--font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:var(--font);overflow:hidden}
+  canvas#c{display:block;width:100%;height:100%;position:fixed;inset:0}
+  .panel{background:var(--panel);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 10px 50px rgba(0,0,0,.6)}
+  #ui{position:fixed;top:14px;left:14px;width:290px;max-height:calc(100% - 28px);padding:16px;overflow-y:auto;z-index:10}
+  #ui h1{font-size:12px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;margin:0 0 2px}
+  #ui .sub{font-size:11px;color:var(--txt2);margin:0 0 14px;line-height:1.4}
+  .sec{font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--txt2);margin:18px 0 9px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  .sec:first-of-type{margin-top:0}
+  .row{margin:11px 0}
+  .row label{display:flex;justify-content:space-between;font-size:11px;color:var(--txt2);margin-bottom:6px}
+  .row label .v{color:var(--txt);font-variant-numeric:tabular-nums}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:3px;background:rgba(255,255,255,.15);outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--acc);border:none;cursor:pointer}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--acc);border:none;cursor:pointer}
+  input[type=color]{-webkit-appearance:none;appearance:none;width:100%;height:30px;border:1px solid var(--line);border-radius:7px;background:none;cursor:pointer;padding:2px}
+  input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+  input[type=color]::-webkit-color-swatch{border:none;border-radius:5px}
+  .presets{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .presets button{border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--txt);font:500 11px var(--font);padding:9px;border-radius:7px;cursor:pointer;display:flex;align-items:center;gap:7px}
+  .presets button:hover{background:rgba(255,255,255,.09)}
+  .presets .sw{width:24px;height:14px;border-radius:3px;flex:0 0 auto}
+  #hud{position:fixed;top:14px;right:14px;z-index:10;font-size:11px;color:var(--txt2);padding:6px 10px;font-variant-numeric:tabular-nums;min-width:130px;text-align:right}
+  .qbtns{display:flex;gap:6px;margin-top:4px}
+  .qbtns button{flex:1;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--txt2);font:500 10px var(--font);padding:6px;border-radius:6px;cursor:pointer}
+  .qbtns button.on{background:rgba(255,255,255,.13);color:var(--txt);border-color:var(--acc)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="ui" class="panel">
+  <h1>Silk · 3D-Mesh + Licht</h1>
+  <p class="sub">v003 · DOF · Liquid-Modus · Pattern · Bloom-Fix</p>
+  <div class="sec">Farb-Presets</div>
+  <div class="presets" id="presets"></div>
+  <div class="sec">Farben</div>
+  <div id="colors"></div>
+  <div class="sec">Stoff & Bewegung</div>
+  <div id="params"></div>
+  <div class="sec">Licht</div>
+  <div id="light"></div>
+  <div class="sec">Post-Processing</div>
+  <div id="ppctl"></div>
+  <div class="sec">Render-Auflösung</div>
+  <div class="qbtns" id="qbtns"></div>
+</div>
+
+<div id="hud" class="panel">– fps</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js" }}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+const canvas=document.getElementById('c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false,powerPreference:'high-performance'});
+let W=1,H=1; let RES_SCALE=1.0; const DPR_CAP=2;
+function pxDims(){ const d=Math.min(devicePixelRatio,DPR_CAP)*RES_SCALE; return [Math.max(2,Math.floor(W*d)),Math.max(2,Math.floor(H*d))]; }
+
+/* ============================================================
+   ECHTE 3D-SZENE: gewellte Ebene, beleuchtet.
+   Silk-Glanz = anisotropes Specular auf bewegten Wellenkämmen.
+   ============================================================ */
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+camera.position.set(0, 0, 7.2);
+camera.lookAt(0,0,0);
+
+// hochaufgelöstes Plane-Mesh (genug Vertices für glatte Wellen)
+const SEG=320;
+const geo=new THREE.PlaneGeometry(20, 12, SEG, Math.floor(SEG*0.6));
+
+const U={
+  uTime:{value:0},
+  uC1:{value:new THREE.Color('#04101e')},
+  uC2:{value:new THREE.Color('#1f6fd0')},
+  uC3:{value:new THREE.Color('#7fd8ff')},
+  uSpeed:{value:0.35},
+  uFold:{value:1.0},        // Faltentiefe (Displacement-Amplitude)
+  uScale:{value:1.0},       // Faltengröße
+  uLightDir:{value:new THREE.Vector3(0.4,0.5,1.0).normalize()},
+  uSpecPow:{value:1.0},     // Glanzschärfe
+  uAniso:{value:1.0},       // anisotropie (seidiger Streifenglanz)
+  uSpecInt:{value:0.6},     // Glanzintensität
+  uFresnel:{value:1.0},
+  uLiquid:{value:0.0},      // 0=Silk, 1=Liquid
+  uPattern:{value:0.0},     // Pattern-Stärke
+};
+
+const mat=new THREE.ShaderMaterial({
+  uniforms:U,
+  vertexShader:`
+    precision highp float;
+    uniform float uTime,uSpeed,uFold,uScale;
+    varying vec3 vNormal; varying vec3 vView; varying vec3 vPos; varying float vH; varying vec2 vUv; varying float vViewZ;
+
+    vec3 hash3(vec3 p){ p=vec3(dot(p,vec3(127.1,311.7,74.7)),dot(p,vec3(269.5,183.3,246.1)),dot(p,vec3(113.5,271.9,124.6)));
+      return fract(sin(p)*43758.5453123); }
+    float snoise(vec3 p){ vec3 i=floor(p),f=fract(p); vec3 u=f*f*(3.0-2.0*f);
+      vec3 h000=hash3(i)*2.-1.,h100=hash3(i+vec3(1,0,0))*2.-1.,h010=hash3(i+vec3(0,1,0))*2.-1.,h110=hash3(i+vec3(1,1,0))*2.-1.;
+      vec3 h001=hash3(i+vec3(0,0,1))*2.-1.,h101=hash3(i+vec3(1,0,1))*2.-1.,h011=hash3(i+vec3(0,1,1))*2.-1.,h111=hash3(i+vec3(1,1,1))*2.-1.;
+      return mix(mix(mix(dot(h000,f),dot(h100,f-vec3(1,0,0)),u.x),mix(dot(h010,f-vec3(0,1,0)),dot(h110,f-vec3(1,1,0)),u.x),u.y),
+                 mix(mix(dot(h001,f-vec3(0,0,1)),dot(h101,f-vec3(1,0,1)),u.x),mix(dot(h011,f-vec3(0,1,1)),dot(h111,f-vec3(1,1,1)),u.x),u.y),u.z); }
+    float fbm(vec3 p){ float v=0.,a=.5; for(int i=0;i<4;i++){ v+=a*snoise(p); p=p*2.02+7.1; a*=.5; } return v; }
+
+    // Höhenfeld: gerichtete, fließende Seidenfalten (fein, damit Glanz in schmale Kämme zerfällt)
+    float height(vec2 uv){
+      float t=uTime*uSpeed;
+      vec2 dir=vec2(0.4,1.0);
+      float coord=dot(uv,dir)*0.6*uScale;
+      float warp=fbm(vec3(uv*0.5*uScale, t*0.3));
+      float h = sin(coord*7.0 + warp*3.5 + t*1.2)*0.45;
+      h += sin(coord*14.0 + warp*2.5 - t*0.8)*0.22;
+      h += sin(coord*26.0 + warp*1.5 + t*1.6)*0.10;   // feine Oberfalten
+      h += fbm(vec3(uv*1.6*uScale + warp, t*0.4))*0.35;
+      return h*uFold;
+    }
+
+    void main(){
+      vUv=uv;
+      vec3 pos=position;
+      float h=height(uv);
+      pos.z += h; vH=h;
+      // Normale über finite Differenzen aus dem Höhenfeld (für echtes Specular)
+      float e=0.01;
+      float hx=height(uv+vec2(e,0.))-height(uv-vec2(e,0.));
+      float hy=height(uv+vec2(0.,e))-height(uv-vec2(0.,e));
+      vec3 n=normalize(vec3(-hx/(2.0*e)*0.6, -hy/(2.0*e)*0.6, 1.0));
+      vNormal=normalize(normalMatrix*n);
+      vec4 mv=modelViewMatrix*vec4(pos,1.0);
+      vView=normalize(-mv.xyz);
+      vViewZ=-mv.z;
+      vPos=pos;
+      gl_Position=projectionMatrix*mv;
+    }`,
+  fragmentShader:`
+    precision highp float;
+    uniform vec3 uC1,uC2,uC3,uLightDir; uniform float uSpecPow,uAniso,uSpecInt,uFresnel,uLiquid,uPattern;
+    varying vec3 vNormal; varying vec3 vView; varying vec3 vPos; varying float vH; varying vec2 vUv; varying float vViewZ;
+
+    void main(){
+      vec3 N=normalize(vNormal);
+      vec3 L=normalize(uLightDir);
+      vec3 V=normalize(vView);
+      vec3 Hh=normalize(L+V);
+
+      float diff=clamp(dot(N,L)*0.5+0.5, 0.0, 1.0);
+
+      // anisotropes Specular (Silk: schmaler Streifen)
+      vec3 fiber=normalize(vec3(1.0,0.25,0.0));
+      float dotTH=dot(fiber, Hh);
+      float sinTH=sqrt(max(0.0,1.0-dotTH*dotTH));
+      float aniso=pow(sinTH, mix(20.0,120.0,clamp(uSpecPow*0.5,0.,1.)) ) * uAniso;
+      float spec=pow(max(dot(N,Hh),0.0), mix(30.0,200.0,clamp(uSpecPow*0.5,0.,1.)));
+      // Liquid: breiteres weiches Specular statt schmaler Streifen
+      float liquidSpec=pow(max(dot(N,Hh),0.0), mix(8.0,40.0,clamp(uSpecPow*0.5,0.,1.)));
+      float silkSpecular=(spec*0.6 + aniso*1.0);
+      float specular=mix(silkSpecular, liquidSpec*1.2, uLiquid)*uSpecInt;
+
+      // Fresnel — bei Liquid deutlich stärker (Wasser leuchtet am Rand)
+      float fresPow=mix(3.0,1.6,uLiquid);
+      float fres=pow(1.0-max(dot(N,V),0.0), fresPow)*uFresnel*mix(0.6,1.6,uLiquid);
+
+      float g=clamp(diff*0.7 + vH*0.5+0.3, 0.0, 1.0);
+      vec3 base=mix(uC1,uC2, smoothstep(0.1,0.7,g));
+      base=mix(base,uC3, smoothstep(0.7,1.0,g)*0.6);
+
+      vec3 col=base;
+      col += uC3 * specular * 3.2;     // heller für sichtbares Bloom
+      col += uC3 * fres * 0.8;
+
+      // optionales Pattern: feines Raster, das mit dem Stoff mitläuft und an Kämmen aufblitzt
+      if(uPattern>0.001){
+        vec2 pq=vUv*vec2(60.0,40.0);
+        float lines=abs(sin(pq.x*3.14159))*abs(sin(pq.y*3.14159));
+        float grid=smoothstep(0.85,1.0, lines);
+        // an hellen Falten (specular) stärker sichtbar -> wirkt wie Stoffstruktur
+        col += uC3 * grid * (0.15 + specular*0.5) * uPattern;
+      }
+
+      // View-Tiefe normalisiert in Alpha (für DOF im Post): ~4..11 Einheiten -> 0..1
+      float depthN=clamp((vViewZ-4.0)/7.0, 0.0, 1.0);
+      gl_FragColor=vec4(col, depthN);
+    }`,
+});
+const mesh=new THREE.Mesh(geo,mat);
+mesh.rotation.x=-0.35;   // leichte Neigung für Tiefe/streifende Sicht
+scene.add(mesh);
+window.__U=U;
+
+/* ---- Render-to-HDR + DOF + Bloom + ACES ---- */
+function mkRT(){ return new THREE.WebGLRenderTarget(1,1,{minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,wrapS:THREE.ClampToEdgeWrapping,wrapT:THREE.ClampToEdgeWrapping}); }
+const rtScene=mkRT(), rtDof=mkRT(), rtBright=mkRT(), rtBlur=mkRT();
+const quadGeo=new THREE.PlaneGeometry(2,2);
+const quadCam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+function fsPass(uniforms,frag){
+  const sc=new THREE.Scene();
+  const m=new THREE.ShaderMaterial({uniforms,vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}`,fragmentShader:frag,depthTest:false,depthWrite:false});
+  sc.add(new THREE.Mesh(quadGeo,m));
+  return {scene:sc,mat:m,render(t){renderer.setRenderTarget(t||null);renderer.render(sc,quadCam);}};
+}
+// DOF: tiefenabhängiger Blur. Tiefe steckt in uScene.a (0=nah .. 1=fern).
+// uFocus = Fokustiefe, uDofAmt = Stärke. CoC = Abstand zur Fokusebene.
+const dof=fsPass({uScene:{value:rtScene.texture},uRes:{value:new THREE.Vector2(1,1)},uFocus:{value:0.35},uDofAmt:{value:1.0}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uScene; uniform vec2 uRes; uniform float uFocus,uDofAmt;
+  void main(){
+    vec4 c=texture2D(uScene,vUv);
+    float depth=c.a;
+    float coc=clamp(abs(depth-uFocus)*2.2, 0.0, 1.0)*uDofAmt;   // circle of confusion
+    // KEIN early return und feste Iterationszahl -> keine variierende Schleife mehr (behebt gradient-in-loop Warnung).
+    // Bei coc~0 ist px~0 -> alle Taps treffen ~denselben Punkt -> scharf.
+    vec2 px=coc*7.0/uRes;
+    vec3 s=c.rgb; float wsum=1.0;
+    for(int i=0;i<8;i++){
+      float a=float(i)*0.785398;   // 45°-Schritte
+      vec2 off=vec2(cos(a),sin(a))*px;
+      s+=texture2D(uScene,vUv+off).rgb; wsum+=1.0;
+    }
+    gl_FragColor=vec4(s/wsum, depth);
+  }`);
+const bright=fsPass({uTex:{value:rtDof.texture},uThresh:{value:0.55}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uTex; uniform float uThresh;
+  void main(){ vec3 c=texture2D(uTex,vUv).rgb; float l=max(max(c.r,c.g),c.b);
+    gl_FragColor=vec4(c*smoothstep(uThresh,uThresh+0.2,l),1.0); }`);
+const blur=fsPass({uTex:{value:null},uRes:{value:new THREE.Vector2(1,1)},uDir:{value:new THREE.Vector2(1,0)}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uTex; uniform vec2 uRes,uDir;
+  void main(){ vec2 px=uDir/uRes; vec3 s=vec3(0.); float w0=0.204,w1=0.180,w2=0.123,w3=0.066,w4=0.028,w5=0.009;
+    s+=texture2D(uTex,vUv).rgb*w0;
+    s+=(texture2D(uTex,vUv+px*1.5).rgb+texture2D(uTex,vUv-px*1.5).rgb)*w1;
+    s+=(texture2D(uTex,vUv+px*3.5).rgb+texture2D(uTex,vUv-px*3.5).rgb)*w2;
+    s+=(texture2D(uTex,vUv+px*5.5).rgb+texture2D(uTex,vUv-px*5.5).rgb)*w3;
+    s+=(texture2D(uTex,vUv+px*7.5).rgb+texture2D(uTex,vUv-px*7.5).rgb)*w4;
+    s+=(texture2D(uTex,vUv+px*9.5).rgb+texture2D(uTex,vUv-px*9.5).rgb)*w5;
+    gl_FragColor=vec4(s,1.); }`);
+const tonemap=fsPass({uScene:{value:rtDof.texture},uBloom:{value:rtBright.texture},uRes:{value:new THREE.Vector2(1,1)},
+  uTime:{value:0},uBloomAmt:{value:0.55},uGrain:{value:0.02},uVignette:{value:0.45}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uScene,uBloom; uniform vec2 uRes; uniform float uTime,uBloomAmt,uGrain,uVignette;
+  vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.,1.); }
+  float hash(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+  void main(){
+    vec3 sc=texture2D(uScene,vUv).rgb;
+    vec3 bl=texture2D(uBloom,vUv).rgb;
+    vec3 c=aces(sc + bl*uBloomAmt);
+    float d=length(vUv-0.5); c*=1.0-smoothstep(0.55,1.0,d)*uVignette;
+    float g=hash(vUv*uRes+uTime*60.0)-0.5; c+=g*uGrain;
+    gl_FragColor=vec4(c,1.);
+  }`);
+
+function resize(){
+  W=innerWidth; H=innerHeight; renderer.setSize(W,H,false);
+  const [pw,ph]=pxDims();
+  renderer.setPixelRatio(1);
+  rtScene.setSize(pw,ph); rtDof.setSize(pw,ph); rtBright.setSize(Math.floor(pw/2),Math.floor(ph/2)); rtBlur.setSize(Math.floor(pw/2),Math.floor(ph/2));
+  camera.aspect=W/H; camera.updateProjectionMatrix();
+  tonemap.mat.uniforms.uRes.value.set(pw,ph);
+  dof.mat.uniforms.uRes.value.set(pw,ph);
+}
+addEventListener('resize',resize);
+
+/* ============================================================ PRESETS / UI ============================================================ */
+const PRESETS=[
+  {name:'Ocean',  c1:'#04101e', c2:'#1f6fd0', c3:'#9fe4ff'},
+  {name:'Aurora', c1:'#0a0420', c2:'#6a2fd0', c3:'#5cf0d0'},
+  {name:'Ember',  c1:'#1a0604', c2:'#d0431f', c3:'#ffd08b'},
+  {name:'Mono',   c1:'#0a0c10', c2:'#5a6470', c3:'#ffffff'},
+  {name:'Magenta',c1:'#10041a', c2:'#c02f8f', c3:'#ffb0e8'},
+  {name:'Gold',   c1:'#140d02', c2:'#b8862f', c3:'#fff0b0'},
+];
+const colorsEl=document.getElementById('colors'),paramsEl=document.getElementById('params'),lightEl=document.getElementById('light'),ppctl=document.getElementById('ppctl'),qbtns=document.getElementById('qbtns'),presetsEl=document.getElementById('presets');
+
+function buildPresets(){ presetsEl.innerHTML='';
+  PRESETS.forEach(p=>{ const b=document.createElement('button');
+    b.innerHTML=`<span class="sw" style="background:linear-gradient(90deg,${p.c1},${p.c2},${p.c3})"></span>${p.name}`;
+    b.onclick=()=>{ U.uC1.value.set(p.c1); U.uC2.value.set(p.c2); U.uC3.value.set(p.c3); buildColors(); };
+    presetsEl.appendChild(b); }); }
+function buildColors(){ colorsEl.innerHTML='';
+  [['uC1','Tiefe'],['uC2','Mittelton'],['uC3','Glanz/Licht']].forEach(([u,lab])=>{ const row=document.createElement('div'); row.className='row';
+    row.innerHTML=`<label><span>${lab}</span></label>`;
+    const inp=document.createElement('input'); inp.type='color'; inp.value='#'+U[u].value.getHexString();
+    inp.oninput=()=>U[u].value.set(inp.value); row.appendChild(inp); colorsEl.appendChild(row); }); }
+function slider(parent,u,lab,mn,mx,st){ const row=document.createElement('div'); row.className='row'; const val=U[u].value;
+  row.innerHTML=`<label><span>${lab}</span><span class="v" id="v_${u}">${(+val).toFixed(2)}</span></label>`;
+  const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=val;
+  inp.oninput=()=>{ U[u].value=+inp.value; document.getElementById('v_'+u).textContent=(+inp.value).toFixed(2); };
+  row.appendChild(inp); parent.appendChild(row); }
+function buildParams(){ paramsEl.innerHTML='';
+  slider(paramsEl,'uSpeed','Tempo',0,1.2,.02); slider(paramsEl,'uFold','Faltentiefe',0,2,.05); slider(paramsEl,'uScale','Faltengröße',0.4,2.5,.05);
+  slider(paramsEl,'uLiquid','Silk → Liquid',0,1,.02); slider(paramsEl,'uPattern','Pattern',0,1,.02); }
+function buildLight(){ lightEl.innerHTML='';
+  slider(lightEl,'uSpecInt','Glanz-Intensität',0,3,.05); slider(lightEl,'uSpecPow','Glanz-Schärfe',0,2,.05); slider(lightEl,'uAniso','Seiden-Anisotropie',0,2,.05); slider(lightEl,'uFresnel','Rand-Schimmer',0,2,.05); }
+function dofSlider(parent,key,lab,mn,mx,st){ const row=document.createElement('div'); row.className='row'; const val=dof.mat.uniforms[key].value;
+  row.innerHTML=`<label><span>${lab}</span><span class="v" id="d_${key}">${(+val).toFixed(2)}</span></label>`;
+  const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=val;
+  inp.oninput=()=>{ dof.mat.uniforms[key].value=+inp.value; document.getElementById('d_'+key).textContent=(+inp.value).toFixed(2); };
+  row.appendChild(inp); parent.appendChild(row); }
+function buildPP(){ ppctl.innerHTML='';
+  dofSlider(ppctl,'uDofAmt','Tiefenschärfe (DOF)',0,2,.05); dofSlider(ppctl,'uFocus','DOF-Fokus',0,1,.02);
+  const items=[['uBloomAmt','Bloom',0,2,.05],['uGrain','Grain',0,.1,.005],['uVignette','Vignette',0,1,.05]];
+  items.forEach(([u,lab,mn,mx,st])=>{ const row=document.createElement('div'); row.className='row'; const val=tonemap.mat.uniforms[u].value;
+    row.innerHTML=`<label><span>${lab}</span><span class="v" id="pp_${u}">${val.toFixed(2)}</span></label>`;
+    const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=val;
+    inp.oninput=()=>{ tonemap.mat.uniforms[u].value=+inp.value; document.getElementById('pp_'+u).textContent=(+inp.value).toFixed(2); };
+    row.appendChild(inp); ppctl.appendChild(row); }); }
+function buildQ(){ const opts=[['½',0.5],['¾',0.75],['1×',1.0]]; qbtns.innerHTML='';
+  opts.forEach(([lab,v])=>{ const b=document.createElement('button'); b.textContent=lab; if(Math.abs(v-RES_SCALE)<0.01) b.className='on';
+    b.onclick=()=>{ RES_SCALE=v; resize(); buildQ(); }; qbtns.appendChild(b); }); }
+
+buildPresets(); buildColors(); buildParams(); buildLight(); buildPP(); buildQ(); resize();
+
+/* ============================================================ LOOP ============================================================ */
+let last=performance.now(),fAcc=0,fN=0,fT=0; const hud=document.getElementById('hud');
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000); last=now; const t=now/1000;
+  U.uTime.value=t; tonemap.mat.uniforms.uTime.value=t;
+  renderer.setRenderTarget(rtScene); renderer.render(scene,camera);
+  // DOF: tiefenabhängiger Blur (liest Tiefe aus rtScene.a) -> rtDof
+  dof.mat.uniforms.uScene.value=rtScene.texture; dof.render(rtDof);
+  // Bloom aus dem DOF-Ergebnis
+  bright.mat.uniforms.uTex.value=rtDof.texture; bright.render(rtBright);
+  blur.mat.uniforms.uTex.value=rtBright.texture; blur.mat.uniforms.uRes.value.set(rtBright.width,rtBright.height);
+  blur.mat.uniforms.uDir.value.set(1,0); blur.render(rtBlur);
+  blur.mat.uniforms.uTex.value=rtBlur.texture; blur.mat.uniforms.uDir.value.set(0,1); blur.render(rtBright);
+  tonemap.mat.uniforms.uScene.value=rtDof.texture; tonemap.mat.uniforms.uBloom.value=rtBright.texture; tonemap.render(null);
+  fAcc+=1/dt; fN++; fT+=dt; if(fT>0.5){ const [pw,ph]=pxDims(); hud.textContent=Math.round(fAcc/fN)+' fps · '+pw+'×'+ph; fAcc=fN=fT=0; }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
