@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plexus 3D v003</title>
+<style>
+  :root{--bg:#050607;--panel:rgba(13,15,20,.86);--line:rgba(255,255,255,.10);--txt:#eceef3;--txt2:#868d9b;--acc:#fff;--r:11px;--font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:var(--font);overflow:hidden}
+  canvas#c{display:block;width:100%;height:100%;position:fixed;inset:0}
+  .panel{background:var(--panel);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 10px 50px rgba(0,0,0,.6)}
+  #ui{position:fixed;top:14px;left:14px;width:290px;max-height:calc(100% - 28px);padding:16px;overflow-y:auto;z-index:10}
+  #ui h1{font-size:12px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;margin:0 0 2px}
+  #ui .sub{font-size:11px;color:var(--txt2);margin:0 0 14px;line-height:1.4}
+  .sec{font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--txt2);margin:18px 0 9px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  .sec:first-of-type{margin-top:0}
+  .row{margin:11px 0}
+  .row label{display:flex;justify-content:space-between;font-size:11px;color:var(--txt2);margin-bottom:6px}
+  .row label .v{color:var(--txt);font-variant-numeric:tabular-nums}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:3px;background:rgba(255,255,255,.15);outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--acc);border:none;cursor:pointer}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--acc);border:none;cursor:pointer}
+  input[type=color]{-webkit-appearance:none;appearance:none;width:100%;height:30px;border:1px solid var(--line);border-radius:7px;background:none;cursor:pointer;padding:2px}
+  input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+  input[type=color]::-webkit-color-swatch{border:none;border-radius:5px}
+  .presets{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .presets button{border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--txt);font:500 11px var(--font);padding:9px;border-radius:7px;cursor:pointer;display:flex;align-items:center;gap:7px}
+  .presets button:hover{background:rgba(255,255,255,.09)}
+  .presets .sw{width:24px;height:14px;border-radius:3px;flex:0 0 auto}
+  #hud{position:fixed;top:14px;right:14px;z-index:10;font-size:11px;color:var(--txt2);padding:6px 10px;font-variant-numeric:tabular-nums;min-width:160px;text-align:right}
+  .qbtns{display:flex;gap:6px;margin-top:4px}
+  .qbtns button{flex:1;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--txt2);font:500 10px var(--font);padding:6px;border-radius:6px;cursor:pointer}
+  .qbtns button.on{background:rgba(255,255,255,.13);color:var(--txt);border-color:var(--acc)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="ui" class="panel">
+  <h1>Plexus · Particle Network</h1>
+  <p class="sub">v003 · gleichmäßige Verteilung · Separation · max-Distanz · DOF dyn.</p>
+  <div class="sec">Farb-Presets</div>
+  <div class="presets" id="presets"></div>
+  <div class="sec">Farben</div>
+  <div id="colors"></div>
+  <div class="sec">Netzwerk</div>
+  <div id="params"></div>
+  <div class="sec">Bewegung</div>
+  <div id="motion"></div>
+  <div class="sec">Darstellung</div>
+  <div id="look"></div>
+  <div class="sec">Post-Processing</div>
+  <div id="ppctl"></div>
+  <div class="sec">Render-Auflösung</div>
+  <div class="qbtns" id="qbtns"></div>
+</div>
+
+<div id="hud" class="panel">– fps</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js" }}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+const canvas=document.getElementById('c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false,powerPreference:'high-performance'});
+let W=1,H=1; let RES_SCALE=1.0; const DPR_CAP=2;
+function pxDims(){ const d=Math.min(devicePixelRatio,DPR_CAP)*RES_SCALE; return [Math.max(2,Math.floor(W*d)),Math.max(2,Math.floor(H*d))]; }
+
+/* ============================================================
+   PARTICLE NETWORK / PLEXUS
+   Andere technische Frage als das Silk-Mesh:
+   - Punkte als Points-Cloud (round sprite, additiv)
+   - Verbindungslinien dynamisch pro Frame: nahe Punktpaare -> Segment
+   - Naiv ist das O(n^2). Lösung: räumliches Grid-Binning,
+     nur Nachbarzellen prüfen + festes Linien-Budget.
+   - Echte Z-Tiefe vorhanden -> DOF + tiefenabhängiger Fade.
+   ============================================================ */
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+camera.position.set(0, 0, 16);
+camera.lookAt(0,0,0);
+
+/* ---- Volumen, in dem die Punkte schweben ---- */
+const BOX={x:22, y:13, z:14};   // Breite/Höhe/Tiefe des Schwarms
+const NMAX=900;                  // harte Obergrenze Punkte
+const LMAX=24000;                // harte Obergrenze Linien-Segmente (Budget)
+
+let N=420;                       // aktive Punkte (regelbar)
+const pos=new Float32Array(NMAX*3);
+const vel=new Float32Array(NMAX*3);
+const hub=new Float32Array(NMAX);   // 0..1, deterministischer Hub-Faktor pro Punkt
+const phase=new Float32Array(NMAX); // feste Zufallsphase pro Punkt (gegen Gleichschritt)
+function rngHash(i){ const x=Math.sin(i*127.1+0.5)*43758.5453; return x-Math.floor(x); }
+
+function seed(){
+  for(let i=0;i<NMAX;i++){
+    pos[i*3]  =(Math.random()-0.5)*BOX.x;
+    pos[i*3+1]=(Math.random()-0.5)*BOX.y;
+    pos[i*3+2]=(Math.random()-0.5)*BOX.z;
+    vel[i*3]  =(Math.random()-0.5);
+    vel[i*3+1]=(Math.random()-0.5);
+    vel[i*3+2]=(Math.random()-0.5);
+    // Hub-Faktor: oberer Schwanz einer Hash-Verteilung -> wenige starke Hubs
+    const r=rngHash(i);
+    const thr=1.0-STATE.hubs;
+    hub[i]= r>thr ? (r-thr)/Math.max(0.0001,STATE.hubs) : 0.0;
+    phase[i]=rngHash(i+9999)*6.2832;
+  }
+}
+// seed()-Aufruf erfolgt nach STATE/applyDepth-Definition
+
+const U={
+  uC1:{value:new THREE.Color('#0a1830')},  // Tiefe / Hintergrund-Ton der nahen Punkte
+  uC2:{value:new THREE.Color('#3aa0ff')},  // Punkt-Kernfarbe
+  uC3:{value:new THREE.Color('#bfe8ff')},  // Glanz / Linien-Highlight
+  uSpeed:{value:0.5},
+  uDrift:{value:0.6},      // Stärke der sanften Strömung (curl-artig)
+  uLinkDist:{value:3.6},   // max. Distanz für Verbindung
+  uLinkSoft:{value:0.45},  // Breite des weichen Fade-Fensters (0=hart, gegen Ploppen)
+  uPointSize:{value:7.0},
+  uLineOpacity:{value:0.55},
+  uPointOpacity:{value:0.9},
+  uDepthFade:{value:0.7},  // wie stark ferne Punkte ausbleichen
+  uHub:{value:0.0},        // per-vertex: 0=normaler Punkt, 1=Hub (kommt aus attribute)
+  uShape:{value:0},        // 0 dot, 1 ring, 2 square, 3 star, 4 cross
+  uZNear:{value:6.0}, uZFar:{value:46.0},  // View-Z-Spanne des Schwarms (pro Frame gesetzt)
+};
+// Regler-State ausserhalb der GLSL-Uniforms (CPU-seitig genutzt):
+const STATE={ depth:0.45, chaos:0.4, hubs:0.18 };  // Tiefe, Ordnung<->Chaos, Hub-Anteil
+// Z-Tiefe der Box + Kamera koppeln: depth 0 = flach/fern, 1 = tief/nah
+function applyDepth(){
+  const oldZ=BOX.z;
+  BOX.z = 8 + STATE.depth*34;           // 8 .. 42 Einheiten Tiefe
+  // bestehende Punkte proportional auf neue Tiefe reskalieren (sonst kollabiert/klebt der Schwarm)
+  if(oldZ>0 && Math.abs(oldZ-BOX.z)>0.001){
+    const k=BOX.z/oldZ;
+    for(let i=0;i<NMAX;i++){ pos[i*3+2]*=k; }
+    if(typeof ptGeo!=='undefined' && ptGeo && ptGeo.attributes.position) ptGeo.attributes.position.needsUpdate=true;
+  }
+  camera.position.z = 8 + (1-STATE.depth)*10 + BOX.z*0.30;  // naeher ranruecken bei mehr Tiefe
+  camera.updateProjectionMatrix();
+}
+// Initialer Tiefen-Setup ohne Reskalierung (ptGeo existiert noch nicht):
+BOX.z = 8 + STATE.depth*34;
+camera.position.z = 8 + (1-STATE.depth)*10 + BOX.z*0.30;
+camera.updateProjectionMatrix();
+seed();         // jetzt sind STATE und Box-Tiefe gesetzt
+
+/* ---- Punkte (Points) ---- */
+const ptGeo=new THREE.BufferGeometry();
+ptGeo.setAttribute('position', new THREE.BufferAttribute(pos,3).setUsage(THREE.DynamicDrawUsage));
+ptGeo.setAttribute('aHub', new THREE.BufferAttribute(hub,1));
+ptGeo.setDrawRange(0,N);
+const ptMat=new THREE.ShaderMaterial({
+  uniforms:U, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
+  vertexShader:`
+    precision highp float;
+    attribute float aHub;
+    uniform float uPointSize; uniform float uDepthFade; uniform float uZNear,uZFar;
+    varying float vFade; varying float vDepthN; varying float vHub;
+    void main(){
+      vec4 mv=modelViewMatrix*vec4(position,1.0);
+      float vz=-mv.z;
+      vDepthN=clamp((vz-uZNear)/max(0.001,uZFar-uZNear), 0.0, 1.0);   // 0 nah .. 1 fern (dyn. Spanne)
+      vFade=mix(1.0, 1.0-uDepthFade, vDepthN);
+      vHub=aHub;
+      float hubScale=1.0+aHub*2.2;                       // Hubs deutlich groesser
+      gl_PointSize=uPointSize*hubScale*(14.0/vz);        // perspektivische Größe
+      gl_Position=projectionMatrix*mv;
+    }`,
+  fragmentShader:`
+    precision highp float;
+    uniform vec3 uC2,uC3; uniform float uPointOpacity; uniform int uShape;
+    varying float vFade; varying float vDepthN; varying float vHub;
+    // weiche Maske je Form, 1 = voll, 0 = aussen
+    float shapeMask(vec2 p){
+      float r=length(p);
+      if(uShape==0){                       // dot: weicher Kreis
+        return smoothstep(0.5,0.0,r);
+      } else if(uShape==1){                // ring
+        float d=abs(r-0.34);
+        return smoothstep(0.13,0.0,d);
+      } else if(uShape==2){                // square (weiche Kanten)
+        float sq=max(abs(p.x),abs(p.y));
+        return smoothstep(0.46,0.30,sq);
+      } else if(uShape==3){                // star: 4-Strahl + Kern
+        vec2 a=abs(p);
+        float spike=smoothstep(0.5,0.0, min(a.x,a.y)*6.0 + r*0.6);
+        float core=smoothstep(0.32,0.0,r);
+        return clamp(max(spike,core),0.0,1.0);
+      } else {                             // cross / plus
+        vec2 a=abs(p);
+        float horiz=smoothstep(0.10,0.04,a.y)*smoothstep(0.48,0.40,a.x);
+        float vert =smoothstep(0.10,0.04,a.x)*smoothstep(0.48,0.40,a.y);
+        return clamp(horiz+vert,0.0,1.0);
+      }
+    }
+    void main(){
+      vec2 d=gl_PointCoord-0.5;
+      float m=shapeMask(d);
+      if(m<=0.001) discard;
+      float glow=pow(m,2.5);
+      vec3 col=mix(uC2,uC3, glow);
+      float a=m*uPointOpacity*vFade*(0.7+vHub*0.6);
+      // HDR-Kern fuer Bloom: heller Mittelpunkt, Hubs uebersteuern stark
+      col += uC3*pow(m,8.0)*(2.4 + vHub*4.0);
+      gl_FragColor=vec4(col, a);
+    }`,
+});
+const points=new THREE.Points(ptGeo,ptMat);
+scene.add(points);
+
+/* ---- Linien (LineSegments), dynamisch befuellt ---- */
+const linePos=new Float32Array(LMAX*2*3);
+const lineAlpha=new Float32Array(LMAX*2);     // per-vertex alpha (Distanz + Tiefe)
+const lineGeo=new THREE.BufferGeometry();
+lineGeo.setAttribute('position', new THREE.BufferAttribute(linePos,3).setUsage(THREE.DynamicDrawUsage));
+lineGeo.setAttribute('aAlpha', new THREE.BufferAttribute(lineAlpha,1).setUsage(THREE.DynamicDrawUsage));
+const lineMat=new THREE.ShaderMaterial({
+  uniforms:U, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
+  vertexShader:`
+    precision highp float;
+    attribute float aAlpha;
+    uniform float uDepthFade; uniform float uZNear,uZFar;
+    varying float vA; varying float vDepthN;
+    void main(){
+      vec4 mv=modelViewMatrix*vec4(position,1.0);
+      float vz=-mv.z;
+      vDepthN=clamp((vz-uZNear)/max(0.001,uZFar-uZNear),0.0,1.0);
+      float fade=mix(1.0,1.0-uDepthFade,vDepthN);
+      vA=aAlpha*fade;
+      gl_Position=projectionMatrix*mv;
+    }`,
+  fragmentShader:`
+    precision highp float;
+    uniform vec3 uC2,uC3; uniform float uLineOpacity;
+    varying float vA;
+    void main(){
+      vec3 col=mix(uC2,uC3,0.4);
+      gl_FragColor=vec4(col, vA*uLineOpacity);
+    }`,
+});
+const lines=new THREE.LineSegments(lineGeo,lineMat);
+scene.add(lines);
+
+/* ---- Tiefe-RT fuer DOF: separater Pass schreibt View-Z in Alpha ----
+   Points/Lines sind additiv und schreiben kein sauberes Alpha-Depth.
+   Loesung: wir rendern die Szene normal in rtScene (rgb),
+   und einen zweiten, leichten Tiefen-Pass fuer Points in rtDepth.a.
+   Pragmatisch fuer PoC: DOF nutzt eine aus rtScene.a gefuellte Tiefe
+   die wir im Points-Frag NICHT haben -> daher approximative Tiefe
+   ueber separaten Depth-Material-Pass. */
+const depthMat=new THREE.ShaderMaterial({
+  uniforms:U, transparent:true, depthWrite:false, blending:THREE.NormalBlending,
+  vertexShader:`
+    precision highp float; uniform float uPointSize; uniform float uZNear,uZFar;
+    varying float vDepthN;
+    void main(){
+      vec4 mv=modelViewMatrix*vec4(position,1.0);
+      float vz=-mv.z; vDepthN=clamp((vz-uZNear)/max(0.001,uZFar-uZNear),0.0,1.0);
+      gl_PointSize=uPointSize*(14.0/vz)*1.4;
+      gl_Position=projectionMatrix*mv;
+    }`,
+  fragmentShader:`
+    precision highp float; varying float vDepthN;
+    void main(){ vec2 d=gl_PointCoord-0.5; if(length(d)>0.5) discard;
+      gl_FragColor=vec4(vDepthN,vDepthN,vDepthN,1.0); }`,
+});
+
+/* ============================================================ POST-PIPELINE (aus v003: HDR -> DOF -> Bright -> Blur -> ACES) ============================================================ */
+function mkRT(){ return new THREE.WebGLRenderTarget(1,1,{minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,wrapS:THREE.ClampToEdgeWrapping,wrapT:THREE.ClampToEdgeWrapping}); }
+const rtScene=mkRT(), rtDepth=mkRT(), rtDof=mkRT(), rtBright=mkRT(), rtBlur=mkRT();
+const quadGeo=new THREE.PlaneGeometry(2,2);
+const quadCam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+function fsPass(uniforms,frag){
+  const sc=new THREE.Scene();
+  const m=new THREE.ShaderMaterial({uniforms,vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}`,fragmentShader:frag,depthTest:false,depthWrite:false});
+  sc.add(new THREE.Mesh(quadGeo,m));
+  return {scene:sc,mat:m,render(t){renderer.setRenderTarget(t||null);renderer.render(sc,quadCam);}};
+}
+// DOF: liest RGB aus rtScene, Tiefe aus rtDepth.r
+const dof=fsPass({uScene:{value:rtScene.texture},uDepth:{value:rtDepth.texture},uRes:{value:new THREE.Vector2(1,1)},uFocus:{value:0.18},uDofAmt:{value:0.9},uFalloff:{value:1.0}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uScene,uDepth; uniform vec2 uRes; uniform float uFocus,uDofAmt,uFalloff;
+  void main(){
+    vec3 c=texture2D(uScene,vUv).rgb;
+    float depth=texture2D(uDepth,vUv).r;
+    // uFalloff 0 = symmetrisch um Fokus (klassisch),
+    //          1 = monoton mit Tiefe (vorne scharf, hinten weich -> echter Verlauf)
+    float symm=abs(depth-uFocus);
+    float behind=max(0.0, depth-uFocus);
+    float coc=clamp(mix(symm, behind, uFalloff)*2.4, 0.0, 1.0)*uDofAmt;
+    // feste Iterationszahl, KEIN early-return (gegen "gradient in loop"-Warnung)
+    // Offset geht bei coc->0 gegen null, daher kein Blur am scharfen Punkt
+    vec2 px=coc*9.0/uRes;
+    vec3 s=c; float wsum=1.0;
+    // Ring 1: 8 Taps
+    for(int i=0;i<8;i++){
+      float a=float(i)*0.785398;
+      vec2 off=vec2(cos(a),sin(a))*px;
+      s+=texture2D(uScene,vUv+off).rgb; wsum+=1.0;
+    }
+    // Ring 2: 8 Taps, weiter aussen, leicht versetzt -> weicherer Bokeh-Verlauf
+    for(int i=0;i<8;i++){
+      float a=float(i)*0.785398+0.3927;
+      vec2 off=vec2(cos(a),sin(a))*px*1.85;
+      s+=texture2D(uScene,vUv+off).rgb*0.6; wsum+=0.6;
+    }
+    gl_FragColor=vec4(s/wsum, depth);
+  }`);
+const bright=fsPass({uTex:{value:rtDof.texture},uThresh:{value:0.5}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uTex; uniform float uThresh;
+  void main(){ vec3 c=texture2D(uTex,vUv).rgb; float l=max(max(c.r,c.g),c.b);
+    gl_FragColor=vec4(c*smoothstep(uThresh,uThresh+0.2,l),1.0); }`);
+const blur=fsPass({uTex:{value:null},uRes:{value:new THREE.Vector2(1,1)},uDir:{value:new THREE.Vector2(1,0)}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uTex; uniform vec2 uRes,uDir;
+  void main(){ vec2 px=uDir/uRes; vec3 s=vec3(0.); float w0=0.204,w1=0.180,w2=0.123,w3=0.066,w4=0.028,w5=0.009;
+    s+=texture2D(uTex,vUv).rgb*w0;
+    s+=(texture2D(uTex,vUv+px*1.5).rgb+texture2D(uTex,vUv-px*1.5).rgb)*w1;
+    s+=(texture2D(uTex,vUv+px*3.5).rgb+texture2D(uTex,vUv-px*3.5).rgb)*w2;
+    s+=(texture2D(uTex,vUv+px*5.5).rgb+texture2D(uTex,vUv-px*5.5).rgb)*w3;
+    s+=(texture2D(uTex,vUv+px*7.5).rgb+texture2D(uTex,vUv-px*7.5).rgb)*w4;
+    s+=(texture2D(uTex,vUv+px*9.5).rgb+texture2D(uTex,vUv-px*9.5).rgb)*w5;
+    gl_FragColor=vec4(s,1.); }`);
+const tonemap=fsPass({uScene:{value:rtDof.texture},uBloom:{value:rtBright.texture},uRes:{value:new THREE.Vector2(1,1)},
+  uTime:{value:0},uBloomAmt:{value:0.8},uGrain:{value:0.02},uVignette:{value:0.5},uBg1:{value:U.uC1.value}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uScene,uBloom; uniform vec2 uRes; uniform float uTime,uBloomAmt,uGrain,uVignette; uniform vec3 uBg1;
+  vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.,1.); }
+  float hash(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+  void main(){
+    vec3 sc=texture2D(uScene,vUv).rgb;
+    vec3 bl=texture2D(uBloom,vUv).rgb;
+    // dezenter Hintergrund-Gradient (radial), damit nicht reines Schwarz
+    float d=length(vUv-0.5);
+    vec3 bg=uBg1*mix(0.9,0.15, d);
+    vec3 c=aces(sc + bg + bl*uBloomAmt);
+    c*=1.0-smoothstep(0.55,1.0,d)*uVignette;
+    float g=hash(vUv*uRes+uTime*60.0)-0.5; c+=g*uGrain;
+    gl_FragColor=vec4(c,1.);
+  }`);
+
+function resize(){
+  W=innerWidth; H=innerHeight; renderer.setSize(W,H,false);
+  const [pw,ph]=pxDims();
+  renderer.setPixelRatio(1);
+  rtScene.setSize(pw,ph); rtDepth.setSize(pw,ph); rtDof.setSize(pw,ph);
+  rtBright.setSize(Math.floor(pw/2),Math.floor(ph/2)); rtBlur.setSize(Math.floor(pw/2),Math.floor(ph/2));
+  camera.aspect=W/H; camera.updateProjectionMatrix();
+  tonemap.mat.uniforms.uRes.value.set(pw,ph);
+  dof.mat.uniforms.uRes.value.set(pw,ph);
+}
+addEventListener('resize',resize);
+
+/* ============================================================ SIMULATION: Drift + Grid-Binning fuer Linien ============================================================ */
+// raeumliches Grid: Zellgroesse = Verbindungsdistanz, nur Nachbarzellen pruefen
+const cellHead=new Int32Array(0); let gridDim=[0,0,0], cellSize=1;
+let gridBuf=new Int32Array(0), nextIdx=new Int32Array(NMAX);
+
+function buildGrid(cs){
+  cellSize=Math.max(0.5, cs!==undefined ? cs : U.uLinkDist.value);
+  gridDim=[Math.ceil(BOX.x/cellSize)+2, Math.ceil(BOX.y/cellSize)+2, Math.ceil(BOX.z/cellSize)+2];
+  const total=gridDim[0]*gridDim[1]*gridDim[2];
+  if(gridBuf.length!==total){ gridBuf=new Int32Array(total); }
+  gridBuf.fill(-1);
+  const ox=BOX.x/2, oy=BOX.y/2, oz=BOX.z/2;
+  for(let i=0;i<N;i++){
+    const cx=Math.floor((pos[i*3]+ox)/cellSize)+1;
+    const cy=Math.floor((pos[i*3+1]+oy)/cellSize)+1;
+    const cz=Math.floor((pos[i*3+2]+oz)/cellSize)+1;
+    const ci=(cz*gridDim[1]+cy)*gridDim[0]+cx;
+    nextIdx[i]=gridBuf[ci]; gridBuf[ci]=i;
+  }
+}
+
+let t=0;
+function flow(x,y,z,ph,out){ // Stroemung; ph = per-Punkt-Phase gegen Gleichschritt-Kollaps
+  const ch=STATE.chaos;
+  // laminar: ruhige gerichtete Stroemung, leicht raeumlich moduliert
+  const lx=0.5+0.25*Math.sin(t*0.2+y*0.08+ph);
+  const ly=0.18*Math.sin(t*0.25+z*0.10+ph*1.3);
+  const lz=0.18*Math.cos(t*0.18+x*0.08+ph*0.7);
+  // turbulent: divergenzaermerer Curl (gegensinnige Terme) + per-Punkt-Phase,
+  // damit nicht alle Punkte in dieselbe Senke gezogen werden
+  const tx=Math.sin(y*0.25+t*0.4+ph)-Math.cos(z*0.22-t*0.3+ph*0.5);
+  const ty=Math.sin(z*0.25-t*0.35+ph*1.1)-Math.cos(x*0.22+t*0.25+ph*0.6);
+  const tz=Math.sin(x*0.25+t*0.3+ph*0.9)-Math.cos(y*0.22-t*0.4+ph*0.4);
+  out[0]=lx*(1-ch)+tx*ch;
+  out[1]=ly*(1-ch)+ty*ch;
+  out[2]=lz*(1-ch)+tz*ch;
+}
+const _f=[0,0,0];
+
+const SEP_R=2.6;           // Separations-Reichweite (haelt Punkte gleichmaessig verteilt)
+const sepF=new Float32Array(NMAX*3);
+function step(dt){
+  const sp=U.uSpeed.value, dr=U.uDrift.value;
+  const ox=BOX.x/2, oy=BOX.y/2, oz=BOX.z/2;
+
+  // --- Separationskraft ueber eigenes Grid (feste Reichweite) ---
+  sepF.fill(0);
+  buildGrid(SEP_R);
+  const [gx,gy,gz]=gridDim; const sr2=SEP_R*SEP_R;
+  for(let i=0;i<N;i++){
+    const xi=pos[i*3], yi=pos[i*3+1], zi=pos[i*3+2];
+    const cx=Math.floor((xi+ox)/cellSize)+1, cy=Math.floor((yi+oy)/cellSize)+1, cz=Math.floor((zi+oz)/cellSize)+1;
+    for(let dz=-1;dz<=1;dz++)for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+      const nx=cx+dx,ny=cy+dy,nz=cz+dz;
+      if(nx<0||ny<0||nz<0||nx>=gx||ny>=gy||nz>=gz) continue;
+      let j=gridBuf[(nz*gy+ny)*gx+nx];
+      while(j!==-1){
+        if(j!==i){
+          const ddx=xi-pos[j*3], ddy=yi-pos[j*3+1], ddz=zi-pos[j*3+2];
+          const d2=ddx*ddx+ddy*ddy+ddz*ddz;
+          if(d2<sr2 && d2>1e-4){ const inv=(1.0-Math.sqrt(d2)/SEP_R)/Math.sqrt(d2);
+            sepF[i*3]+=ddx*inv; sepF[i*3+1]+=ddy*inv; sepF[i*3+2]+=ddz*inv; }
+        }
+        j=nextIdx[j];
+      }
+    }
+  }
+
+  for(let i=0;i<N;i++){
+    flow(pos[i*3],pos[i*3+1],pos[i*3+2],phase[i],_f);
+    // Stroemung
+    vel[i*3]   += _f[0]*dr*dt;
+    vel[i*3+1] += _f[1]*dr*dt;
+    vel[i*3+2] += _f[2]*dr*dt;
+    // Separation (gegen Verklumpen, haelt Verteilung gleichmaessig)
+    vel[i*3]   += sepF[i*3]*2.2*dt;
+    vel[i*3+1] += sepF[i*3+1]*2.2*dt;
+    vel[i*3+2] += sepF[i*3+2]*2.2*dt;
+    // Grundbewegung: pro Punkt nie ganz still (Tempo>0 garantiert Bewegung)
+    const ph=phase[i];
+    vel[i*3]   += Math.sin(t*0.7+ph)*0.25*dt;
+    vel[i*3+1] += Math.cos(t*0.6+ph*1.3)*0.25*dt;
+    vel[i*3+2] += Math.sin(t*0.5+ph*0.7)*0.25*dt;
+    // leichtere Daempfung -> Bewegung bleibt erhalten
+    vel[i*3]*=0.985; vel[i*3+1]*=0.985; vel[i*3+2]*=0.985;
+    pos[i*3]   += vel[i*3]*sp*dt;
+    pos[i*3+1] += vel[i*3+1]*sp*dt;
+    pos[i*3+2] += vel[i*3+2]*sp*dt;
+    // weiche Randreflexion (kein Teleport -> Linien reissen nicht)
+    const mx=ox*0.96, my=oy*0.96, mz=oz*0.96;
+    if(pos[i*3]> mx){ vel[i*3]-=(pos[i*3]-mx)*0.5; } if(pos[i*3]<-mx){ vel[i*3]+=(-mx-pos[i*3])*0.5; }
+    if(pos[i*3+1]> my){ vel[i*3+1]-=(pos[i*3+1]-my)*0.5; } if(pos[i*3+1]<-my){ vel[i*3+1]+=(-my-pos[i*3+1])*0.5; }
+    if(pos[i*3+2]> mz){ vel[i*3+2]-=(pos[i*3+2]-mz)*0.5; } if(pos[i*3+2]<-mz){ vel[i*3+2]+=(-mz-pos[i*3+2])*0.5; }
+  }
+  ptGeo.attributes.position.needsUpdate=true;
+  ptGeo.setDrawRange(0,N);
+}
+
+function buildLinks(){
+  buildGrid();
+  const maxD=U.uLinkDist.value, maxD2=maxD*maxD;
+  let li=0; // line-segment count
+  const ox=BOX.x/2, oy=BOX.y/2, oz=BOX.z/2;
+  const [gx,gy,gz]=gridDim;
+  for(let i=0;i<N && li<LMAX;i++){
+    const xi=pos[i*3], yi=pos[i*3+1], zi=pos[i*3+2];
+    const cx=Math.floor((xi+ox)/cellSize)+1;
+    const cy=Math.floor((yi+oy)/cellSize)+1;
+    const cz=Math.floor((zi+oz)/cellSize)+1;
+    // nur halbe Nachbarschaft pruefen (Paare nicht doppelt) -> j>i Filter
+    for(let dz=-1;dz<=1;dz++)for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+      const nx=cx+dx, ny=cy+dy, nz=cz+dz;
+      if(nx<0||ny<0||nz<0||nx>=gx||ny>=gy||nz>=gz) continue;
+      let j=gridBuf[(nz*gy+ny)*gx+nx];
+      while(j!==-1){
+        if(j>i){
+          const ddx=xi-pos[j*3], ddy=yi-pos[j*3+1], ddz=zi-pos[j*3+2];
+          const d2=ddx*ddx+ddy*ddy+ddz*ddz;
+          if(d2<maxD2 && li<LMAX){
+            const dist=Math.sqrt(d2);
+            // weiches Fade-Fenster: voll sichtbar bis (1-soft)*maxD, dann smooth auf 0 am Cutoff
+            const soft=U.uLinkSoft.value;
+            const inner=maxD*(1.0-soft);
+            let a;
+            if(dist<=inner){ a=1.0; }
+            else { const tt=(dist-inner)/Math.max(0.0001,(maxD-inner)); a=1.0-tt*tt*(3.0-2.0*tt); } // smoothstep
+            // Hubs verstaerken ihre Linien leicht (Komposition)
+            const hb=1.0+(hub[i]+hub[j])*0.5;
+            a*=hb;
+            const b=li*6;
+            linePos[b]  =xi; linePos[b+1]=yi; linePos[b+2]=zi;
+            linePos[b+3]=pos[j*3]; linePos[b+4]=pos[j*3+1]; linePos[b+5]=pos[j*3+2];
+            lineAlpha[li*2]=a; lineAlpha[li*2+1]=a;
+            li++;
+          }
+        }
+        j=nextIdx[j];
+      }
+    }
+  }
+  lineGeo.attributes.position.needsUpdate=true;
+  lineGeo.attributes.aAlpha.needsUpdate=true;
+  lineGeo.setDrawRange(0,li*2);
+  return li;
+}
+
+/* ============================================================ PRESETS / UI ============================================================ */
+const PRESETS=[
+  {name:'Cyan',    c1:'#0a1830', c2:'#3aa0ff', c3:'#bfe8ff'},
+  {name:'Network', c1:'#06121f', c2:'#21d4c4', c3:'#cffff8'},
+  {name:'Violet',  c1:'#140828', c2:'#8a5cff', c3:'#e0ccff'},
+  {name:'Ember',   c1:'#1a0a04', c2:'#ff7a3a', c3:'#ffe0bf'},
+  {name:'Mono',    c1:'#0c0e12', c2:'#8a93a3', c3:'#ffffff'},
+  {name:'Acid',    c1:'#0a1404', c2:'#9adb3a', c3:'#eaffcf'},
+];
+const colorsEl=document.getElementById('colors'),paramsEl=document.getElementById('params'),motionEl=document.getElementById('motion'),lookEl=document.getElementById('look'),ppctl=document.getElementById('ppctl'),qbtns=document.getElementById('qbtns'),presetsEl=document.getElementById('presets');
+
+function buildPresets(){ presetsEl.innerHTML='';
+  PRESETS.forEach(p=>{ const b=document.createElement('button');
+    b.innerHTML=`<span class="sw" style="background:linear-gradient(90deg,${p.c1},${p.c2},${p.c3})"></span>${p.name}`;
+    b.onclick=()=>{ U.uC1.value.set(p.c1); U.uC2.value.set(p.c2); U.uC3.value.set(p.c3); buildColors(); };
+    presetsEl.appendChild(b); }); }
+function buildColors(){ colorsEl.innerHTML='';
+  [['uC1','Hintergrund'],['uC2','Punkt-Kern'],['uC3','Glanz/Linien']].forEach(([u,lab])=>{ const row=document.createElement('div'); row.className='row';
+    row.innerHTML=`<label><span>${lab}</span></label>`;
+    const inp=document.createElement('input'); inp.type='color'; inp.value='#'+U[u].value.getHexString();
+    inp.oninput=()=>U[u].value.set(inp.value); row.appendChild(inp); colorsEl.appendChild(row); }); }
+function slider(parent,u,lab,mn,mx,st){ const row=document.createElement('div'); row.className='row'; const val=U[u].value;
+  row.innerHTML=`<label><span>${lab}</span><span class="v" id="v_${u}">${(+val).toFixed(2)}</span></label>`;
+  const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=val;
+  inp.oninput=()=>{ U[u].value=+inp.value; document.getElementById('v_'+u).textContent=(+inp.value).toFixed(2); };
+  row.appendChild(inp); parent.appendChild(row); }
+function buildParams(){ paramsEl.innerHTML='';
+  // Punktzahl als eigener Regler (kein Uniform)
+  const row=document.createElement('div'); row.className='row';
+  row.innerHTML=`<label><span>Punkte</span><span class="v" id="v_N">${N}</span></label>`;
+  const inp=document.createElement('input'); inp.type='range'; inp.min=60; inp.max=NMAX; inp.step=20; inp.value=N;
+  inp.oninput=()=>{ N=+inp.value; document.getElementById('v_N').textContent=N; };
+  row.appendChild(inp); paramsEl.appendChild(row);
+  slider(paramsEl,'uLinkDist','Verbindungs-Distanz',1.5,32,.5);
+  slider(paramsEl,'uLinkSoft','Linien-Weichheit',0,0.95,.02);
+  // Tiefe (STATE, koppelt Box.z + Kamera)
+  stateSlider(paramsEl,'depth','Tiefe (3D-Spreizung)',0,1,.02,applyDepth);
+  // Hub-Anteil (STATE, beeinflusst seed -> reseed bei Aenderung)
+  stateSlider(paramsEl,'hubs','Hub-Anteil',0,0.4,.01,reHub);
+}
+function buildMotion(){ motionEl.innerHTML='';
+  slider(motionEl,'uSpeed','Tempo',0,1.5,.02); slider(motionEl,'uDrift','Strömung',0,1.5,.02);
+  stateSlider(motionEl,'chaos','Ordnung → Chaos',0,1,.02); }
+// Regler fuer STATE-Werte (keine GLSL-Uniforms)
+function stateSlider(parent,key,lab,mn,mx,st,onChange){ const row=document.createElement('div'); row.className='row'; const val=STATE[key];
+  row.innerHTML=`<label><span>${lab}</span><span class="v" id="s_${key}">${(+val).toFixed(2)}</span></label>`;
+  const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=val;
+  inp.oninput=()=>{ STATE[key]=+inp.value; document.getElementById('s_'+key).textContent=(+inp.value).toFixed(2); if(onChange)onChange(); };
+  row.appendChild(inp); parent.appendChild(row); }
+// Hub-Anteil neu berechnen ohne Positionen zu resetten
+function reHub(){ const thr=1.0-STATE.hubs; for(let i=0;i<NMAX;i++){ const r=rngHash(i); hub[i]= r>thr ? (r-thr)/Math.max(0.0001,STATE.hubs) : 0.0; } ptGeo.attributes.aHub.needsUpdate=true; }
+function buildLook(){ lookEl.innerHTML='';
+  // Shape-Auswahl
+  const shapes=['Dot','Ring','Square','Star','Cross'];
+  const lab=document.createElement('label'); lab.innerHTML='<span>Punkt-Form</span>'; lab.style.cssText='display:block;font-size:11px;color:var(--txt2);margin-bottom:6px';
+  lookEl.appendChild(lab);
+  const wrap=document.createElement('div'); wrap.className='qbtns'; wrap.style.flexWrap='wrap';
+  shapes.forEach((s,idx)=>{ const b=document.createElement('button'); b.textContent=s; if(idx===U.uShape.value) b.className='on';
+    b.onclick=()=>{ U.uShape.value=idx; [...wrap.children].forEach((c,i)=>c.className=i===idx?'on':''); };
+    wrap.appendChild(b); });
+  lookEl.appendChild(wrap);
+  slider(lookEl,'uPointSize','Punkt-Größe',2,16,.5); slider(lookEl,'uPointOpacity','Punkt-Deckkraft',0,1.5,.05);
+  slider(lookEl,'uLineOpacity','Linien-Deckkraft',0,1.5,.05); slider(lookEl,'uDepthFade','Tiefen-Fade',0,1,.05); }
+function buildPP(){ ppctl.innerHTML='';
+  const dofItems=[['uDofAmt','Tiefenschärfe (DOF)',0,2,.05],['uFocus','DOF-Fokus',0,1,.02],['uFalloff','DOF-Verlauf (symm→Tiefe)',0,1,.05]];
+  dofItems.forEach(([key,lab,mn,mx,st])=>{ const row=document.createElement('div'); row.className='row'; const val=dof.mat.uniforms[key].value;
+    row.innerHTML=`<label><span>${lab}</span><span class="v" id="d_${key}">${(+val).toFixed(2)}</span></label>`;
+    const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=val;
+    inp.oninput=()=>{ dof.mat.uniforms[key].value=+inp.value; document.getElementById('d_'+key).textContent=(+inp.value).toFixed(2); };
+    row.appendChild(inp); ppctl.appendChild(row); });
+  const items=[['uBloomAmt','Bloom-Stärke',0,5,.05]];
+  items.forEach(([u,lab,mn,mx,st])=>{ const row=document.createElement('div'); row.className='row'; const val=tonemap.mat.uniforms[u].value;
+    row.innerHTML=`<label><span>${lab}</span><span class="v" id="pp_${u}">${val.toFixed(2)}</span></label>`;
+    const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=val;
+    inp.oninput=()=>{ tonemap.mat.uniforms[u].value=+inp.value; document.getElementById('pp_'+u).textContent=(+inp.value).toFixed(2); };
+    row.appendChild(inp); ppctl.appendChild(row); });
+  // Bloom-Threshold: ab welcher Helligkeit etwas glueht
+  { const row=document.createElement('div'); row.className='row'; const val=bright.mat.uniforms.uThresh.value;
+    row.innerHTML=`<label><span>Bloom-Schwelle</span><span class="v" id="pp_thr">${val.toFixed(2)}</span></label>`;
+    const inp=document.createElement('input'); inp.type='range'; inp.min=0; inp.max=1.5; inp.step=.02; inp.value=val;
+    inp.oninput=()=>{ bright.mat.uniforms.uThresh.value=+inp.value; document.getElementById('pp_thr').textContent=(+inp.value).toFixed(2); };
+    row.appendChild(inp); ppctl.appendChild(row); }
+  const items2=[['uGrain','Grain',0,.1,.005],['uVignette','Vignette',0,1,.05]];
+  items2.forEach(([u,lab,mn,mx,st])=>{ const row=document.createElement('div'); row.className='row'; const val=tonemap.mat.uniforms[u].value;
+    row.innerHTML=`<label><span>${lab}</span><span class="v" id="pp_${u}">${val.toFixed(2)}</span></label>`;
+    const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=val;
+    inp.oninput=()=>{ tonemap.mat.uniforms[u].value=+inp.value; document.getElementById('pp_'+u).textContent=(+inp.value).toFixed(2); };
+    row.appendChild(inp); ppctl.appendChild(row); }); }
+function buildQ(){ const opts=[['½',0.5],['¾',0.75],['1×',1.0]]; qbtns.innerHTML='';
+  opts.forEach(([lab,v])=>{ const b=document.createElement('button'); b.textContent=lab; if(Math.abs(v-RES_SCALE)<0.01) b.className='on';
+    b.onclick=()=>{ RES_SCALE=v; resize(); buildQ(); }; qbtns.appendChild(b); }); }
+
+buildPresets(); buildColors(); buildParams(); buildMotion(); buildLook(); buildPP(); buildQ(); resize();
+
+/* ============================================================ LOOP ============================================================ */
+let last=performance.now(),fAcc=0,fN=0,fT=0,lastLinks=0; const hud=document.getElementById('hud');
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000); last=now; t=now/1000;
+  tonemap.mat.uniforms.uTime.value=t; tonemap.mat.uniforms.uBg1.value=U.uC1.value;
+  step(dt);
+  lastLinks=buildLinks();
+  // Tiefen-Spanne des Schwarms in View-Z (fuer Depth-Fade + DOF-Fokus-Mapping)
+  U.uZNear.value = camera.position.z - BOX.z*0.5;
+  U.uZFar.value  = camera.position.z + BOX.z*0.5;
+
+  // 1) Szene (Punkte+Linien, additiv) -> rtScene
+  renderer.setRenderTarget(rtScene); renderer.setClearColor(0x000000,1); renderer.clear();
+  renderer.render(scene,camera);
+  // 2) Tiefen-Pass (nur Punkte, schreibt vDepthN) -> rtDepth
+  points.material=depthMat; lines.visible=false;
+  renderer.setRenderTarget(rtDepth); renderer.setClearColor(0xffffff,1); renderer.clear();
+  renderer.render(scene,camera);
+  points.material=ptMat; lines.visible=true;
+  // 3) DOF
+  dof.mat.uniforms.uScene.value=rtScene.texture; dof.mat.uniforms.uDepth.value=rtDepth.texture; dof.render(rtDof);
+  // 4) Bloom
+  bright.mat.uniforms.uTex.value=rtDof.texture; bright.render(rtBright);
+  // Durchgang 1 (eng)
+  blur.mat.uniforms.uTex.value=rtBright.texture; blur.mat.uniforms.uRes.value.set(rtBright.width,rtBright.height);
+  blur.mat.uniforms.uDir.value.set(1,0); blur.render(rtBlur);
+  blur.mat.uniforms.uTex.value=rtBlur.texture; blur.mat.uniforms.uDir.value.set(0,1); blur.render(rtBright);
+  // Durchgang 2 (breit) -> groesseres, weicheres Glow bei hoher Bloom-Staerke
+  blur.mat.uniforms.uTex.value=rtBright.texture; blur.mat.uniforms.uDir.value.set(2.5,0); blur.render(rtBlur);
+  blur.mat.uniforms.uTex.value=rtBlur.texture; blur.mat.uniforms.uDir.value.set(0,2.5); blur.render(rtBright);
+  // 5) Tonemap -> Screen
+  tonemap.mat.uniforms.uScene.value=rtDof.texture; tonemap.mat.uniforms.uBloom.value=rtBright.texture; tonemap.render(null);
+
+  fAcc+=1/dt; fN++; fT+=dt; if(fT>0.5){ const [pw,ph]=pxDims(); hud.textContent=Math.round(fAcc/fN)+' fps · '+pw+'×'+ph+' · '+lastLinks+' links'; fAcc=fN=fT=0; }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

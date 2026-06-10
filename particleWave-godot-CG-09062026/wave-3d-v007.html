@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Particle Wave 3D v007</title>
+<style>
+  :root{--bg:#050607;--panel:rgba(13,15,20,.86);--line:rgba(255,255,255,.10);--txt:#eceef3;--txt2:#868d9b;--acc:#fff;--r:11px;--font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:var(--font);overflow:hidden}
+  canvas#c{display:block;width:100%;height:100%;position:fixed;inset:0}
+  .panel{background:var(--panel);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 10px 50px rgba(0,0,0,.6)}
+  #ui{position:fixed;top:14px;left:14px;width:290px;max-height:calc(100% - 28px);padding:16px;overflow-y:auto;z-index:10}
+  #ui h1{font-size:12px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;margin:0 0 2px}
+  #ui .sub{font-size:11px;color:var(--txt2);margin:0 0 14px;line-height:1.4}
+  .sec{font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--txt2);margin:18px 0 9px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  .sec:first-of-type{margin-top:0}
+  .row{margin:11px 0}
+  .row label{display:flex;justify-content:space-between;font-size:11px;color:var(--txt2);margin-bottom:6px}
+  .row label .v{color:var(--txt);font-variant-numeric:tabular-nums}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:3px;background:rgba(255,255,255,.15);outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--acc);border:none;cursor:pointer}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--acc);border:none;cursor:pointer}
+  input[type=color]{-webkit-appearance:none;appearance:none;width:100%;height:30px;border:1px solid var(--line);border-radius:7px;background:none;cursor:pointer;padding:2px}
+  input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+  input[type=color]::-webkit-color-swatch{border:none;border-radius:5px}
+  .presets{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .presets button{border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--txt);font:500 11px var(--font);padding:9px;border-radius:7px;cursor:pointer;display:flex;align-items:center;gap:7px}
+  .presets button:hover{background:rgba(255,255,255,.09)}
+  .presets .sw{width:24px;height:14px;border-radius:3px;flex:0 0 auto}
+  #hud{position:fixed;top:14px;right:14px;z-index:10;font-size:11px;color:var(--txt2);padding:6px 10px;font-variant-numeric:tabular-nums;min-width:180px;text-align:right}
+  .qbtns{display:flex;gap:6px;margin-top:4px;flex-wrap:wrap}
+  .qbtns button{flex:1;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--txt2);font:500 10px var(--font);padding:6px;border-radius:6px;cursor:pointer}
+  .qbtns button.on{background:rgba(255,255,255,.13);color:var(--txt);border-color:var(--acc)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="ui" class="panel">
+  <h1>Particle Wave · Dot-Grid</h1>
+  <p class="sub">v007 · größere Fläche · gröbere Gitter · Linien über Deckkraft</p>
+  <div class="sec">Farb-Presets</div>
+  <div class="presets" id="presets"></div>
+  <div class="sec">Farben</div>
+  <div id="colors"></div>
+  <div class="sec">Form &amp; Bewegung</div>
+  <div id="wave"></div>
+  <div class="sec">Komposition</div>
+  <div id="comp"></div>
+  <div class="sec">Darstellung</div>
+  <div id="look"></div>
+  <div class="sec">Post-Processing</div>
+  <div id="ppctl"></div>
+  <div class="sec">Render-Auflösung</div>
+  <div class="qbtns" id="qbtns"></div>
+</div>
+
+<div id="hud" class="panel">– fps</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js" }}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+const canvas=document.getElementById('c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false,powerPreference:'high-performance'});
+let W=1,H=1; let RES_SCALE=1.0; const DPR_CAP=2;
+function pxDims(){ const d=Math.min(devicePixelRatio,DPR_CAP)*RES_SCALE; return [Math.max(2,Math.floor(W*d)),Math.max(2,Math.floor(H*d))]; }
+
+/* ============================================================
+   PARTICLE WAVE / DOT-GRID-TERRAIN
+   Andere technische Frage als Plexus:
+   - statisches, regelmaessiges Gitter (kein dynamisches Linking)
+   - Hoehenfeld komplett im VERTEX-SHADER (GPU) -> CPU macht fast nichts
+   - flacher Blickwinkel, Gitter zieht in die Ferne -> starke Perspektive + DOF
+   - Hoehe steuert Farbe/Helligkeit (Kaemme gluehen), perspektivische Punktgroesse
+   ============================================================ */
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(55, 1, 0.1, 400);
+
+// Gitter-Aufloesung (Punktzahl = GW*GH). GPU-seitig, daher grosszuegig.
+let GW=220, GH=160;
+const SPAN_X=320, SPAN_Z=420;   // Weltausdehnung des Gitters (gross genug, Rand nicht sichtbar)
+
+const U={
+  uC1:{value:new THREE.Color('#06121f')},  // Hintergrund / Tal-Ton
+  uC2:{value:new THREE.Color('#1f6dff')},  // mittlere Hoehe
+  uC3:{value:new THREE.Color('#bfe8ff')},  // Kamm / Glanz
+  uTime:{value:0},
+  uAmp:{value:9.0},        // Wellenhoehe
+  uFreq:{value:0.045},     // Grundfrequenz des Hoehenfeldes (Detail-Dichte)
+  uWavelength:{value:1.0}, // Laenge der Hauptwellen (skaliert dominante Oktave)
+  uSpeed:{value:0.5},      // Animationstempo
+  uFlow:{value:0.7},       // gerichtete Fliessbewegung entlang Z
+  uWarp:{value:0.5},       // Domain-Warp / Unregelmaessigkeit
+  uPointSize:{value:2.4},
+  uPointOpacity:{value:0.95},
+  uWireOpacity:{value:0.5},  // Deckkraft der Wireframe-Linien
+  uZNear:{value:1.0}, uZFar:{value:200.0},  // View-Z-Spanne fuer DOF/Fade (pro Frame)
+  uGlow:{value:0.6},       // wie stark Kaemme uebersteuern (Bloom-Futter)
+  uYOff:{value:0.0},       // vertikaler Offset der ganzen Struktur
+  uReflect:{value:0.0},    // Staerke des Horizont-Spiegelbilds (0..1)
+  uDir:{value:new THREE.Vector2(0.0,1.0)},  // Fliessrichtung in der xz-Ebene (normiert)
+  uShape:{value:0},        // 0 dot, 1 ring, 2 square, 3 star, 4 cross
+  uRefl:{value:0.0},       // 0 = normales Set, 1 = Spiegel-Set (per Material gesetzt)
+};
+
+/* ---- Gitter-Geometrie: Position = (x, 0, z), Hoehe kommt im Shader ---- */
+function buildGrid(){
+  const n=GW*GH;
+  const p=new Float32Array(n*3);
+  let k=0;
+  for(let j=0;j<GH;j++){
+    for(let i=0;i<GW;i++){
+      p[k*3]   = (i/(GW-1)-0.5)*SPAN_X;
+      p[k*3+1] = 0.0;
+      p[k*3+2] = (j/(GH-1)-0.5)*SPAN_Z;
+      k++;
+    }
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(p,3));
+  return g;
+}
+let gridGeo=buildGrid();
+// Wireframe: Index-Buffer verbindet Nachbar-Gitterpunkte (rechts + unten) -> Drahtgitter
+function buildWireGeo(){
+  const idx=[];
+  for(let j=0;j<GH;j++){
+    for(let i=0;i<GW;i++){
+      const a=j*GW+i;
+      if(i<GW-1){ idx.push(a, a+1); }    // horizontale Kante
+      if(j<GH-1){ idx.push(a, a+GW); }   // vertikale Kante
+    }
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', gridGeo.getAttribute('position'));  // teilt Vertices mit Punkt-Gitter
+  g.setIndex(idx);
+  return g;
+}
+let wireGeo=buildWireGeo();
+
+const waveMat=new THREE.ShaderMaterial({
+  uniforms:U, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
+  vertexShader:`
+    precision highp float;
+    uniform float uTime,uAmp,uFreq,uWavelength,uSpeed,uFlow,uWarp,uPointSize,uZNear,uZFar,uGlow,uYOff,uRefl;
+    uniform vec2 uDir;
+    varying float vH;        // normierte Hoehe 0..1
+    varying float vFade;     // Tiefen-Fade
+    varying float vDepthN;
+    varying float vReflFade; // vertikaler Reflexions-Ausblend
+    // billiges 2D-Hoehenfeld: mehrere Sinus-Oktaven + dezenter Domain-Warp
+    float field(vec2 q){
+      float t=uTime*uSpeed;
+      float s=1.0/max(0.2,uWavelength);   // groessere Wellenlaenge -> niedrigere Frequenz
+      // gerichtete Fliessbewegung entlang uDir (xz-Ebene)
+      q += uDir * (t*uFlow*8.0);
+      // Domain-Warp fuer Unregelmaessigkeit
+      vec2 w=vec2(sin(q.y*0.6+t)*0.5, cos(q.x*0.5-t)*0.5)*uWarp;
+      q+=w;
+      float h=0.0;
+      h += sin((q.x*1.0 + q.y*0.6)*s)*0.55;        // dominante Welle: Laenge ueber uWavelength
+      h += sin((q.x*0.5 - q.y*1.3)*s + t*0.7)*0.30;
+      h += sin(q.x*2.1 + q.y*1.7 - t*0.5)*0.16;    // Detail-Oktaven unveraendert
+      h += sin(q.x*3.7 - q.y*2.9)*0.08;
+      return h;
+    }
+    void main(){
+      vec3 pos=position;
+      vec2 q=pos.xz*uFreq*6.0;
+      float h=field(q);
+      float baseY = h*uAmp + uYOff;
+      pos.y = baseY;
+      vH = clamp(h*0.5+0.5, 0.0, 1.0);
+      vReflFade = 1.0;
+
+      vec4 mv=modelViewMatrix*vec4(pos,1.0);
+      float vz=-mv.z;
+      vDepthN=clamp((vz-uZNear)/max(0.001,uZFar-uZNear),0.0,1.0);
+      vFade = 1.0 - vDepthN*0.85;                  // ferne Punkte ausblenden
+      gl_PointSize = uPointSize*(120.0/vz);         // perspektivische Groesse
+      gl_Position = projectionMatrix*mv;
+    }`,
+  fragmentShader:`
+    precision highp float;
+    uniform vec3 uC1,uC2,uC3; uniform float uPointOpacity,uGlow,uReflect,uRefl; uniform int uShape;
+    varying float vH; varying float vFade; varying float vDepthN; varying float vReflFade;
+    float shapeMask(vec2 p){
+      float r=length(p);
+      if(uShape==0){ return smoothstep(0.5,0.0,r); }                 // dot
+      else if(uShape==1){ float dd=abs(r-0.34); return smoothstep(0.13,0.0,dd); } // ring
+      else if(uShape==2){ float sq=max(abs(p.x),abs(p.y)); return smoothstep(0.46,0.30,sq); } // square
+      else if(uShape==3){ vec2 a=abs(p);                              // star
+        float spike=smoothstep(0.5,0.0, min(a.x,a.y)*6.0 + r*0.6);
+        float core=smoothstep(0.32,0.0,r); return clamp(max(spike,core),0.0,1.0); }
+      else { vec2 a=abs(p);                                          // cross
+        float h=smoothstep(0.10,0.04,a.y)*smoothstep(0.48,0.40,a.x);
+        float v=smoothstep(0.10,0.04,a.x)*smoothstep(0.48,0.40,a.y);
+        return clamp(h+v,0.0,1.0); }
+    }
+    void main(){
+      vec2 d=gl_PointCoord-0.5;
+      float m=shapeMask(d);
+      if(m<=0.001) discard;
+      // Farbe nach Hoehe: Tal -> Mitte -> Kamm
+      vec3 col = mix(uC1, uC2, smoothstep(0.2,0.6,vH));
+      col = mix(col, uC3, smoothstep(0.55,0.9,vH));
+      float a = m*uPointOpacity*vFade;
+      // Kamm-Gluehen: breitere Schwelle, deutlich staerker (sichtbares Bloom-Futter)
+      float crest = smoothstep(0.45,0.85,vH);
+      col += uC3 * m * crest * uGlow * 4.0;          // flaechiges Gluehen
+      col += uC3 * pow(m,4.0) * crest * (1.0+uGlow*5.0);  // heller Kern fuer Bloom
+      gl_FragColor=vec4(col, a);
+    }`,
+});
+let points=new THREE.Points(gridGeo,waveMat);
+scene.add(points);
+// Horizont-Reflexion wird im Loop durch Bildraum-Spiegelung (Merge) erzeugt
+
+/* ---- Wireframe / Polygon-Grid: Linien zwischen Nachbar-Punkten ----
+   Nutzt denselben Hoehenfeld-Vertex-Shader (Linien wellen automatisch mit),
+   eigener Linien-Frag (kein gl_PointCoord). Sichtbarkeit ueber uWire. ---- */
+const wireMat=new THREE.ShaderMaterial({
+  uniforms:U, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
+  vertexShader:waveMat.vertexShader,   // identische Hoehenfeld-Berechnung
+  fragmentShader:`
+    precision highp float;
+    uniform vec3 uC2,uC3; uniform float uWireOpacity,uGlow;
+    varying float vH; varying float vFade; varying float vDepthN; varying float vReflFade;
+    void main(){
+      vec3 col = mix(uC2, uC3, smoothstep(0.5,0.95,vH));
+      float crest = smoothstep(0.45,0.85,vH);
+      col += uC3*crest*uGlow*1.5;
+      gl_FragColor=vec4(col, uWireOpacity*vFade);
+    }`,
+});
+let wire=new THREE.LineSegments(wireGeo,wireMat);
+wire.visible=true;   // immer aktiv, Sichtbarkeit ueber Linien-Deckkraft
+scene.add(wire);
+
+/* ---- Depth-Pass fuer DOF (Punkte schreiben View-Tiefe) ---- */
+const depthMat=new THREE.ShaderMaterial({
+  uniforms:U, transparent:true, depthWrite:false, blending:THREE.NormalBlending,
+  vertexShader:`
+    precision highp float;
+    uniform float uTime,uAmp,uFreq,uWavelength,uSpeed,uFlow,uWarp,uPointSize,uZNear,uZFar,uYOff;
+    uniform vec2 uDir;
+    varying float vDepthN;
+    float field(vec2 q){
+      float t=uTime*uSpeed; float s=1.0/max(0.2,uWavelength);
+      q += uDir*(t*uFlow*8.0);
+      vec2 w=vec2(sin(q.y*0.6+t)*0.5, cos(q.x*0.5-t)*0.5)*uWarp; q+=w;
+      float h=0.0;
+      h += sin((q.x*1.0 + q.y*0.6)*s)*0.55;
+      h += sin((q.x*0.5 - q.y*1.3)*s + t*0.7)*0.30;
+      h += sin(q.x*2.1 + q.y*1.7 - t*0.5)*0.16;
+      h += sin(q.x*3.7 - q.y*2.9)*0.08;
+      return h;
+    }
+    void main(){
+      vec3 pos=position;
+      vec2 q=pos.xz*uFreq*6.0; pos.y=field(q)*uAmp + uYOff;
+      vec4 mv=modelViewMatrix*vec4(pos,1.0);
+      float vz=-mv.z; vDepthN=clamp((vz-uZNear)/max(0.001,uZFar-uZNear),0.0,1.0);
+      gl_PointSize=uPointSize*(120.0/vz)*1.5;
+      gl_Position=projectionMatrix*mv;
+    }`,
+  fragmentShader:`
+    precision highp float; varying float vDepthN;
+    void main(){ vec2 d=gl_PointCoord-0.5; if(length(d)>0.5) discard;
+      gl_FragColor=vec4(vDepthN,vDepthN,vDepthN,1.0); }`,
+});
+
+/* ============================================================ POST-PIPELINE (HDR -> DOF -> Bright -> Blur -> ACES) ============================================================ */
+function mkRT(){ return new THREE.WebGLRenderTarget(1,1,{minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,wrapS:THREE.ClampToEdgeWrapping,wrapT:THREE.ClampToEdgeWrapping}); }
+const rtScene=mkRT(), rtDepth=mkRT(), rtDof=mkRT(), rtBright=mkRT(), rtBlur=mkRT(), rtRefl=mkRT(), rtMerge=mkRT();
+const quadGeo=new THREE.PlaneGeometry(2,2);
+const quadCam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+function fsPass(uniforms,frag){
+  const sc=new THREE.Scene();
+  const m=new THREE.ShaderMaterial({uniforms,vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}`,fragmentShader:frag,depthTest:false,depthWrite:false});
+  sc.add(new THREE.Mesh(quadGeo,m));
+  return {scene:sc,mat:m,render(t){renderer.setRenderTarget(t||null);renderer.render(sc,quadCam);}};
+}
+const dof=fsPass({uScene:{value:rtScene.texture},uDepth:{value:rtDepth.texture},uRes:{value:new THREE.Vector2(1,1)},uFocus:{value:0.25},uDofAmt:{value:0.8},uFalloff:{value:1.0}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uScene,uDepth; uniform vec2 uRes; uniform float uFocus,uDofAmt,uFalloff;
+  void main(){
+    vec3 c=texture2D(uScene,vUv).rgb;
+    float depth=texture2D(uDepth,vUv).r;
+    float symm=abs(depth-uFocus);
+    float behind=max(0.0, depth-uFocus);
+    float coc=clamp(mix(symm,behind,uFalloff)*2.4,0.0,1.0)*uDofAmt;
+    vec2 px=coc*9.0/uRes;
+    vec3 s=c; float wsum=1.0;
+    for(int i=0;i<8;i++){ float a=float(i)*0.785398; vec2 off=vec2(cos(a),sin(a))*px; s+=texture2D(uScene,vUv+off).rgb; wsum+=1.0; }
+    for(int i=0;i<8;i++){ float a=float(i)*0.785398+0.3927; vec2 off=vec2(cos(a),sin(a))*px*1.85; s+=texture2D(uScene,vUv+off).rgb*0.6; wsum+=0.6; }
+    gl_FragColor=vec4(s/wsum, depth);
+  }`);
+const bright=fsPass({uTex:{value:rtDof.texture},uThresh:{value:0.45}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uTex; uniform float uThresh;
+  void main(){ vec3 c=texture2D(uTex,vUv).rgb; float l=max(max(c.r,c.g),c.b);
+    gl_FragColor=vec4(c*smoothstep(uThresh,uThresh+0.2,l),1.0); }`);
+const blur=fsPass({uTex:{value:null},uRes:{value:new THREE.Vector2(1,1)},uDir:{value:new THREE.Vector2(1,0)}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uTex; uniform vec2 uRes,uDir;
+  void main(){ vec2 px=uDir/uRes; vec3 s=vec3(0.); float w0=0.204,w1=0.180,w2=0.123,w3=0.066,w4=0.028,w5=0.009;
+    s+=texture2D(uTex,vUv).rgb*w0;
+    s+=(texture2D(uTex,vUv+px*1.5).rgb+texture2D(uTex,vUv-px*1.5).rgb)*w1;
+    s+=(texture2D(uTex,vUv+px*3.5).rgb+texture2D(uTex,vUv-px*3.5).rgb)*w2;
+    s+=(texture2D(uTex,vUv+px*5.5).rgb+texture2D(uTex,vUv-px*5.5).rgb)*w3;
+    s+=(texture2D(uTex,vUv+px*7.5).rgb+texture2D(uTex,vUv-px*7.5).rgb)*w4;
+    s+=(texture2D(uTex,vUv+px*9.5).rgb+texture2D(uTex,vUv-px*9.5).rgb)*w5;
+    gl_FragColor=vec4(s,1.); }`);
+const tonemap=fsPass({uScene:{value:rtDof.texture},uBloom:{value:rtBright.texture},uRes:{value:new THREE.Vector2(1,1)},
+  uTime:{value:0},uBloomAmt:{value:1.0},uGrain:{value:0.02},uVignette:{value:0.5},uBg1:{value:U.uC1.value}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uScene,uBloom; uniform vec2 uRes; uniform float uTime,uBloomAmt,uGrain,uVignette; uniform vec3 uBg1;
+  vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.,1.); }
+  float hash(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+  void main(){
+    vec3 sc=texture2D(uScene,vUv).rgb;
+    vec3 bl=texture2D(uBloom,vUv).rgb;
+    float d=length(vUv-0.5);
+    // vertikaler Gradient: oben dunkler Himmel, unten Hintergrund-Ton
+    vec3 bg=uBg1*mix(1.1,0.2, vUv.y)*0.8;
+    vec3 c=aces(sc + bg + bl*uBloomAmt);
+    c*=1.0-smoothstep(0.55,1.0,d)*uVignette;
+    float g=hash(vUv*uRes+uTime*60.0)-0.5; c+=g*uGrain;
+    gl_FragColor=vec4(c,1.);
+  }`);
+
+// Spiegelung im Bildraum: untere Haelfte an horizontaler Linie uMirrorY nach oben spiegeln.
+// Erzeugt die saubere vertikale Symmetrie (untere = obere Haelfte, gespiegelt).
+const reflMerge=fsPass({uScene:{value:rtScene.texture},uReflect:{value:0.0},uMirrorY:{value:0.42},uFade:{value:0.0}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uScene; uniform float uReflect,uMirrorY,uFade;
+  void main(){
+    vec3 base=texture2D(uScene,vUv).rgb;
+    // oberhalb der Spiegelachse: hole den gespiegelten Pixel von unterhalb
+    if(vUv.y > uMirrorY && uReflect>0.001){
+      float srcY = 2.0*uMirrorY - vUv.y;       // gespiegelte Bildhoehe
+      if(srcY>=0.0){
+        vec3 refl=texture2D(uScene, vec2(vUv.x, srcY)).rgb;
+        // uFade 0 -> voll symmetrisch (Zielbild). >0 -> Wasser-Abklang nach oben.
+        float dist=(vUv.y-uMirrorY)/max(0.001,1.0-uMirrorY);
+        float w = uReflect * (uFade<0.001 ? 1.0 : (1.0-smoothstep(0.0,uFade,dist)));
+        base += refl*w;
+      }
+    }
+    gl_FragColor=vec4(base,1.0);
+  }`);
+
+
+const CAM_POS=new THREE.Vector3(0,7,70);
+const CAM_LOOK=new THREE.Vector3(0,6.2,-60);   // fast parallel zur Flaeche, leicht gesenkt
+let MIRROR_OFFSET=0.0;   // Feinjustierung der Spiegelachse um die Horizontlinie
+const _horizonPt=new THREE.Vector3();
+function horizonScreenY(){
+  // weit entfernter Punkt auf Augenhoehe (Gitterebene y=uYOff) -> projiziere auf Bild-Y
+  _horizonPt.set(CAM_POS.x, U.uYOff.value, CAM_POS.z-4000);
+  _horizonPt.project(camera);          // NDC: y in [-1,1], +1 = oben
+  return 0.5 + _horizonPt.y*0.5;       // -> uv-y (0..1, 0 unten)
+}
+function placeCamera(){
+  camera.position.copy(CAM_POS);
+  camera.lookAt(CAM_LOOK);
+  camera.updateProjectionMatrix();
+}
+placeCamera();
+
+
+function resize(){
+  W=innerWidth; H=innerHeight; renderer.setSize(W,H,false);
+  const [pw,ph]=pxDims(); renderer.setPixelRatio(1);
+  rtScene.setSize(pw,ph); rtDepth.setSize(pw,ph); rtDof.setSize(pw,ph); rtRefl.setSize(pw,ph); rtMerge.setSize(pw,ph);
+  rtBright.setSize(Math.floor(pw/2),Math.floor(ph/2)); rtBlur.setSize(Math.floor(pw/2),Math.floor(ph/2));
+  camera.aspect=W/H; camera.updateProjectionMatrix();
+  tonemap.mat.uniforms.uRes.value.set(pw,ph);
+  dof.mat.uniforms.uRes.value.set(pw,ph);
+}
+addEventListener('resize',resize);
+
+/* ============================================================ PRESETS / UI ============================================================ */
+const PRESETS=[
+  {name:'Ocean',  c1:'#06121f', c2:'#1f6dff', c3:'#bfe8ff'},
+  {name:'Teal',   c1:'#04140f', c2:'#15b39a', c3:'#d6fff4'},
+  {name:'Violet', c1:'#100726', c2:'#7d4cff', c3:'#e6d8ff'},
+  {name:'Ember',  c1:'#180802', c2:'#ff6a2a', c3:'#ffe2bf'},
+  {name:'Mono',   c1:'#0a0c10', c2:'#6b7686', c3:'#ffffff'},
+  {name:'Aurora', c1:'#04140c', c2:'#22c25a', c3:'#aef0ff'},
+];
+const colorsEl=document.getElementById('colors'),waveEl=document.getElementById('wave'),compEl=document.getElementById('comp'),lookEl=document.getElementById('look'),ppctl=document.getElementById('ppctl'),qbtns=document.getElementById('qbtns'),presetsEl=document.getElementById('presets');
+
+function buildPresets(){ presetsEl.innerHTML='';
+  PRESETS.forEach(p=>{ const b=document.createElement('button');
+    b.innerHTML=`<span class="sw" style="background:linear-gradient(90deg,${p.c1},${p.c2},${p.c3})"></span>${p.name}`;
+    b.onclick=()=>{ U.uC1.value.set(p.c1); U.uC2.value.set(p.c2); U.uC3.value.set(p.c3); buildColors(); };
+    presetsEl.appendChild(b); }); }
+function buildColors(){ colorsEl.innerHTML='';
+  [['uC1','Tal / Hintergrund'],['uC2','Mittlere Höhe'],['uC3','Kamm / Glanz']].forEach(([u,lab])=>{ const row=document.createElement('div'); row.className='row';
+    row.innerHTML=`<label><span>${lab}</span></label>`;
+    const inp=document.createElement('input'); inp.type='color'; inp.value='#'+U[u].value.getHexString();
+    inp.oninput=()=>U[u].value.set(inp.value); row.appendChild(inp); colorsEl.appendChild(row); }); }
+function slider(parent,u,lab,mn,mx,st){ const row=document.createElement('div'); row.className='row'; const val=U[u].value;
+  row.innerHTML=`<label><span>${lab}</span><span class="v" id="v_${u}">${(+val).toFixed(3)}</span></label>`;
+  const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=val;
+  inp.oninput=()=>{ U[u].value=+inp.value; document.getElementById('v_'+u).textContent=(+inp.value).toFixed(3); };
+  row.appendChild(inp); parent.appendChild(row); }
+function buildWave(){ waveEl.innerHTML='';
+  // Form des Hoehenfeldes
+  slider(waveEl,'uAmp','Wellenhöhe',0,20,.2);
+  slider(waveEl,'uFreq','Frequenz (Detail)',0.01,0.12,.002);
+  slider(waveEl,'uWavelength','Wellenlänge',0.3,3.0,.05);
+  slider(waveEl,'uWarp','Unregelmäßigkeit',0,1.5,.02);
+  // Bewegung
+  slider(waveEl,'uSpeed','Tempo',0,1.5,.02);
+  slider(waveEl,'uFlow','Fließgeschwindigkeit',0,1.5,.02);
+  // Fliessrichtung als 360°-Drehrad (Photoshop-Stil)
+  const dlab=document.createElement('label'); dlab.style.cssText='display:flex;justify-content:space-between;font-size:11px;color:var(--txt2);margin:11px 0 6px';
+  dlab.innerHTML='<span>Fließrichtung</span><span class="v" id="v_ang">0°</span>';
+  waveEl.appendChild(dlab);
+  const dialWrap=document.createElement('div'); dialWrap.style.cssText='display:flex;justify-content:center;margin:4px 0 2px';
+  dialWrap.innerHTML=`<svg id="dirDial" width="78" height="78" viewBox="0 0 78 78" style="cursor:pointer;touch-action:none">
+    <circle cx="39" cy="39" r="34" fill="rgba(255,255,255,.04)" stroke="var(--line)" stroke-width="1"/>
+    <circle cx="39" cy="39" r="3" fill="var(--txt2)"/>
+    <line id="dialPtr" x1="39" y1="39" x2="39" y2="9" stroke="var(--acc)" stroke-width="2" stroke-linecap="round"/>
+    <circle id="dialKnob" cx="39" cy="9" r="4.5" fill="var(--acc)"/>
+  </svg>`;
+  waveEl.appendChild(dialWrap);
+  const svg=dialWrap.querySelector('#dirDial'), ptr=dialWrap.querySelector('#dialPtr'), knob=dialWrap.querySelector('#dialKnob');
+  function dirToAngle(){ const d=U.uDir.value; return Math.atan2(d.x, -d.y); }
+  function setAngle(rad){
+    U.uDir.value.set(Math.sin(rad), -Math.cos(rad));
+    const cx=39, cy=39, R=30;
+    const px=cx+Math.sin(rad)*R, py=cy-Math.cos(rad)*R;
+    ptr.setAttribute('x2',px.toFixed(1)); ptr.setAttribute('y2',py.toFixed(1));
+    knob.setAttribute('cx',px.toFixed(1)); knob.setAttribute('cy',py.toFixed(1));
+    let deg=Math.round(rad*180/Math.PI); if(deg<0)deg+=360;
+    document.getElementById('v_ang').textContent=deg+'°';
+  }
+  function pointerAngle(ev){
+    const rect=svg.getBoundingClientRect();
+    const x=(ev.touches?ev.touches[0].clientX:ev.clientX)-rect.left-39*(rect.width/78);
+    const y=(ev.touches?ev.touches[0].clientY:ev.clientY)-rect.top-39*(rect.height/78);
+    return Math.atan2(x, -y);
+  }
+  let dragging=false;
+  const onMove=ev=>{ if(!dragging)return; setAngle(pointerAngle(ev)); ev.preventDefault(); };
+  svg.addEventListener('pointerdown',ev=>{ dragging=true; setAngle(pointerAngle(ev)); svg.setPointerCapture(ev.pointerId); });
+  svg.addEventListener('pointermove',onMove);
+  svg.addEventListener('pointerup',()=>dragging=false);
+  setAngle(dirToAngle());
+}
+// Komposition: vertikale Position + Spiegelung
+function buildComp(){ compEl.innerHTML='';
+  slider(compEl,'uYOff','Höhen-Position (Y)',-30,30,.5);
+  slider(compEl,'uReflect','Spiegelung (Stärke)',0,1,.02);
+  // Spiegelachse haengt automatisch an der Horizontlinie (Kamerahoehe).
+  // Regler ist ein Feinjustier-Offset darum herum.
+  const row=document.createElement('div'); row.className='row';
+  row.innerHTML=`<label><span>Spiegelachse-Feinjustierung</span><span class="v" id="v_mo">${MIRROR_OFFSET.toFixed(3)}</span></label>`;
+  const inp=document.createElement('input'); inp.type='range'; inp.min=-0.2; inp.max=0.2; inp.step=.005; inp.value=MIRROR_OFFSET;
+  inp.oninput=()=>{ MIRROR_OFFSET=+inp.value; document.getElementById('v_mo').textContent=MIRROR_OFFSET.toFixed(3); };
+  row.appendChild(inp); compEl.appendChild(row);
+  // Reflexions-Abklang nach oben (0 = voll symmetrisch, >0 = Wasser-Look)
+  const r2=document.createElement('div'); r2.className='row'; const fv=reflMerge.mat.uniforms.uFade.value;
+  r2.innerHTML=`<label><span>Spiegelung-Abklang</span><span class="v" id="v_fade">${fv.toFixed(2)}</span></label>`;
+  const i2=document.createElement('input'); i2.type='range'; i2.min=0; i2.max=1; i2.step=.02; i2.value=fv;
+  i2.oninput=()=>{ reflMerge.mat.uniforms.uFade.value=+i2.value; document.getElementById('v_fade').textContent=(+i2.value).toFixed(2); };
+  r2.appendChild(i2); compEl.appendChild(r2);
+}
+function buildLook(){ lookEl.innerHTML='';
+  // Punkt-Form
+  const slab=document.createElement('label'); slab.innerHTML='<span>Punkt-Form</span>'; slab.style.cssText='display:block;font-size:11px;color:var(--txt2);margin-bottom:6px';
+  lookEl.appendChild(slab);
+  const swrap=document.createElement('div'); swrap.className='qbtns';
+  ['Dot','Ring','Square','Star','Cross'].forEach((s,idx)=>{ const b=document.createElement('button'); b.textContent=s; if(idx===U.uShape.value) b.className='on';
+    b.onclick=()=>{ U.uShape.value=idx; [...swrap.children].forEach((c,i)=>c.className=i===idx?'on':''); };
+    swrap.appendChild(b); });
+  lookEl.appendChild(swrap);
+  slider(lookEl,'uPointSize','Punkt-Größe',0.5,6,.1);
+  slider(lookEl,'uPointOpacity','Punkt-Deckkraft',0,1.5,.05);
+  slider(lookEl,'uWireOpacity','Linien-Deckkraft (Polygon-Grid)',0,1.5,.05);
+  slider(lookEl,'uGlow','Kamm-Glühen',0,1.5,.05);
+  // Gitter-Dichte als Slider (steuert GW, GH proportional)
+  const grow=document.createElement('div'); grow.className='row';
+  grow.innerHTML=`<label><span>Gitter-Dichte</span><span class="v" id="v_dens">${GW}×${GH}</span></label>`;
+  const ginp=document.createElement('input'); ginp.type='range'; ginp.min=25; ginp.max=400; ginp.step=5; ginp.value=GW;
+  let gTimer=null;
+  ginp.oninput=()=>{ GW=+ginp.value; GH=Math.round(GW*0.73);
+    document.getElementById('v_dens').textContent=GW+'×'+GH;
+    // Rebuild leicht entprellen (vermeidet Geometrie-Thrash beim Ziehen)
+    clearTimeout(gTimer); gTimer=setTimeout(rebuildGrid,40); };
+  grow.appendChild(ginp); lookEl.appendChild(grow); }
+function buildPP(){ ppctl.innerHTML='';
+  const dofItems=[['uDofAmt','Tiefenschärfe (DOF)',0,2,.05],['uFocus','DOF-Fokus',0,1,.02],['uFalloff','DOF-Verlauf (symm→Tiefe)',0,1,.05]];
+  dofItems.forEach(([key,lab,mn,mx,st])=>{ const row=document.createElement('div'); row.className='row'; const val=dof.mat.uniforms[key].value;
+    row.innerHTML=`<label><span>${lab}</span><span class="v" id="d_${key}">${(+val).toFixed(2)}</span></label>`;
+    const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=val;
+    inp.oninput=()=>{ dof.mat.uniforms[key].value=+inp.value; document.getElementById('d_'+key).textContent=(+inp.value).toFixed(2); };
+    row.appendChild(inp); ppctl.appendChild(row); });
+  const tmItems=[['uBloomAmt','Bloom-Stärke',0,5,.05]];
+  tmItems.forEach(([u,lab,mn,mx,st])=>{ const row=document.createElement('div'); row.className='row'; const val=tonemap.mat.uniforms[u].value;
+    row.innerHTML=`<label><span>${lab}</span><span class="v" id="pp_${u}">${val.toFixed(2)}</span></label>`;
+    const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=val;
+    inp.oninput=()=>{ tonemap.mat.uniforms[u].value=+inp.value; document.getElementById('pp_'+u).textContent=(+inp.value).toFixed(2); };
+    row.appendChild(inp); ppctl.appendChild(row); });
+  { const row=document.createElement('div'); row.className='row'; const val=bright.mat.uniforms.uThresh.value;
+    row.innerHTML=`<label><span>Bloom-Schwelle</span><span class="v" id="pp_thr">${val.toFixed(2)}</span></label>`;
+    const inp=document.createElement('input'); inp.type='range'; inp.min=0; inp.max=1.5; inp.step=.02; inp.value=val;
+    inp.oninput=()=>{ bright.mat.uniforms.uThresh.value=+inp.value; document.getElementById('pp_thr').textContent=(+inp.value).toFixed(2); };
+    row.appendChild(inp); ppctl.appendChild(row); }
+  const tmItems2=[['uGrain','Grain',0,.1,.005],['uVignette','Vignette',0,1,.05]];
+  tmItems2.forEach(([u,lab,mn,mx,st])=>{ const row=document.createElement('div'); row.className='row'; const val=tonemap.mat.uniforms[u].value;
+    row.innerHTML=`<label><span>${lab}</span><span class="v" id="pp_${u}">${val.toFixed(2)}</span></label>`;
+    const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=val;
+    inp.oninput=()=>{ tonemap.mat.uniforms[u].value=+inp.value; document.getElementById('pp_'+u).textContent=(+inp.value).toFixed(2); };
+    row.appendChild(inp); ppctl.appendChild(row); }); }
+function buildQ(){ const opts=[['½',0.5],['¾',0.75],['1×',1.0]]; qbtns.innerHTML='';
+  opts.forEach(([lab,v])=>{ const b=document.createElement('button'); b.textContent=lab; if(Math.abs(v-RES_SCALE)<0.01) b.className='on';
+    b.onclick=()=>{ RES_SCALE=v; resize(); buildQ(); }; qbtns.appendChild(b); }); }
+
+function rebuildGrid(){
+  scene.remove(points); scene.remove(wire);
+  gridGeo.dispose(); wireGeo.dispose();
+  gridGeo=buildGrid(); wireGeo=buildWireGeo();
+  points=new THREE.Points(gridGeo,waveMat); scene.add(points);
+  const wasVisible=wire.visible;
+  wire=new THREE.LineSegments(wireGeo,wireMat); wire.visible=wasVisible; scene.add(wire);
+}
+
+buildPresets(); buildColors(); buildWave(); buildComp(); buildLook(); buildPP(); buildQ(); resize();
+
+/* ============================================================ LOOP ============================================================ */
+let last=performance.now(),fAcc=0,fN=0,fT=0; const hud=document.getElementById('hud');
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000); last=now; const t=now/1000;
+  U.uTime.value=t; tonemap.mat.uniforms.uTime.value=t; tonemap.mat.uniforms.uBg1.value=U.uC1.value;
+
+  // View-Z-Spanne des Gitters fuer DOF/Fade
+  U.uZNear.value = 1.0;
+  U.uZFar.value  = camera.position.z + SPAN_Z*0.5 + 20.0;
+
+  // 1) Szene -> rtScene: Hauptstruktur
+  renderer.setRenderTarget(rtScene); renderer.setClearColor(0x000000,1); renderer.clear();
+  renderer.render(scene,camera);
+  // 1b) Spiegelung im Bildraum (Merge) -> rtMerge
+  reflMerge.mat.uniforms.uScene.value=rtScene.texture;
+  reflMerge.mat.uniforms.uReflect.value=U.uReflect.value;
+  reflMerge.mat.uniforms.uMirrorY.value=Math.min(0.95,Math.max(0.05, horizonScreenY()+MIRROR_OFFSET));
+  reflMerge.render(rtMerge);
+  // 2) Tiefen-Pass -> rtDepth (nur Punkt-Struktur, Wireframe raus)
+  points.material=depthMat; const wv=wire.visible; wire.visible=false;
+  renderer.setRenderTarget(rtDepth); renderer.setClearColor(0xffffff,1); renderer.clear();
+  renderer.render(scene,camera);
+  points.material=waveMat; wire.visible=wv;
+  // 3) DOF (liest gemergtes Bild)
+  dof.mat.uniforms.uScene.value=rtMerge.texture; dof.mat.uniforms.uDepth.value=rtDepth.texture; dof.render(rtDof);
+  // 4) Bloom (zwei Blur-Durchgaenge)
+  bright.mat.uniforms.uTex.value=rtDof.texture; bright.render(rtBright);
+  blur.mat.uniforms.uTex.value=rtBright.texture; blur.mat.uniforms.uRes.value.set(rtBright.width,rtBright.height);
+  blur.mat.uniforms.uDir.value.set(1,0); blur.render(rtBlur);
+  blur.mat.uniforms.uTex.value=rtBlur.texture; blur.mat.uniforms.uDir.value.set(0,1); blur.render(rtBright);
+  blur.mat.uniforms.uTex.value=rtBright.texture; blur.mat.uniforms.uDir.value.set(2.5,0); blur.render(rtBlur);
+  blur.mat.uniforms.uTex.value=rtBlur.texture; blur.mat.uniforms.uDir.value.set(0,2.5); blur.render(rtBright);
+  // 5) Tonemap -> Screen
+  tonemap.mat.uniforms.uScene.value=rtDof.texture; tonemap.mat.uniforms.uBloom.value=rtBright.texture; tonemap.render(null);
+
+  fAcc+=1/dt; fN++; fT+=dt; if(fT>0.5){ const [pw,ph]=pxDims(); hud.textContent=Math.round(fAcc/fN)+' fps · '+pw+'×'+ph+' · '+(GW*GH).toLocaleString()+' pts'; fAcc=fN=fT=0; }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

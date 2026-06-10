@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tunnel / Light-Streaks 3D v002</title>
+<style>
+  :root{--bg:#050607;--panel:rgba(13,15,20,.86);--line:rgba(255,255,255,.10);--txt:#eceef3;--txt2:#868d9b;--acc:#fff;--r:11px;--font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:var(--font);overflow:hidden}
+  canvas#c{display:block;width:100%;height:100%;position:fixed;inset:0}
+  .panel{background:var(--panel);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 10px 50px rgba(0,0,0,.6)}
+  #ui{position:fixed;top:14px;left:14px;width:290px;max-height:calc(100% - 28px);padding:16px;overflow-y:auto;z-index:10}
+  #ui h1{font-size:12px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;margin:0 0 2px}
+  #ui .sub{font-size:11px;color:var(--txt2);margin:0 0 14px;line-height:1.4}
+  .sec{font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--txt2);margin:18px 0 9px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  .sec:first-of-type{margin-top:0}
+  .row{margin:11px 0}
+  .row label{display:flex;justify-content:space-between;font-size:11px;color:var(--txt2);margin-bottom:6px}
+  .row label .v{color:var(--txt);font-variant-numeric:tabular-nums}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:3px;background:rgba(255,255,255,.15);outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--acc);border:none;cursor:pointer}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--acc);border:none;cursor:pointer}
+  input[type=color]{-webkit-appearance:none;appearance:none;width:100%;height:30px;border:1px solid var(--line);border-radius:7px;background:none;cursor:pointer;padding:2px}
+  input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+  input[type=color]::-webkit-color-swatch{border:none;border-radius:5px}
+  .presets{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .presets button{border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--txt);font:500 11px var(--font);padding:9px;border-radius:7px;cursor:pointer;display:flex;align-items:center;gap:7px}
+  .presets button:hover{background:rgba(255,255,255,.09)}
+  .presets .sw{width:24px;height:14px;border-radius:3px;flex:0 0 auto}
+  #hud{position:fixed;top:14px;right:14px;z-index:10;font-size:11px;color:var(--txt2);padding:6px 10px;font-variant-numeric:tabular-nums;min-width:180px;text-align:right}
+  .qbtns{display:flex;gap:6px;margin-top:4px;flex-wrap:wrap}
+  .qbtns button{flex:1;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--txt2);font:500 10px var(--font);padding:6px;border-radius:6px;cursor:pointer}
+  .qbtns button.on{background:rgba(255,255,255,.13);color:var(--txt);border-color:var(--acc)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="ui" class="panel">
+  <h1>Tunnel · Light-Streaks</h1>
+  <p class="sub">v002 · Flugrichtung 360° · Shapes · Grain/Vignette stärker</p>
+  <div class="sec">Farb-Presets</div>
+  <div class="presets" id="presets"></div>
+  <div class="sec">Farben</div>
+  <div id="colors"></div>
+  <div class="sec">Flug & Streaks</div>
+  <div id="flight"></div>
+  <div class="sec">Verteilung</div>
+  <div id="dist"></div>
+  <div class="sec">Darstellung</div>
+  <div id="look"></div>
+  <div class="sec">Post-Processing</div>
+  <div id="ppctl"></div>
+  <div class="sec">Render-Auflösung</div>
+  <div class="qbtns" id="qbtns"></div>
+</div>
+
+<div id="hud" class="panel">– fps</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js" }}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+const canvas=document.getElementById('c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false,powerPreference:'high-performance'});
+let W=1,H=1; let RES_SCALE=1.0; const DPR_CAP=2;
+function pxDims(){ const d=Math.min(devicePixelRatio,DPR_CAP)*RES_SCALE; return [Math.max(2,Math.floor(W*d)),Math.max(2,Math.floor(H*d))]; }
+
+/* ============================================================
+   TUNNEL / LIGHT-STREAKS
+   Andere technische Frage als die bisherigen Ansaetze:
+   - Partikel fliegen entlang +Z auf die Kamera zu (oder Kamera durch sie)
+   - jeder Partikel wird als kurzes Liniensegment (Streak) gerendert,
+     Laenge waechst mit Geschwindigkeit (Motion-Streak / Hyperspace)
+   - Recycling: Partikel hinter der Kamera werden weit vorne neu gesetzt
+   - radiale Anordnung -> Streaks zeigen vom Fluchtpunkt nach aussen
+   CPU bewegt nur die Z-Position + baut Streak-Endpunkte; Rest GPU.
+   ============================================================ */
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(70, 1, 0.1, 600);
+camera.position.set(0,0,0);
+camera.lookAt(0,0,-1);
+
+const NMAX=6000;
+let N=2200;
+const Z_NEAR=2, Z_FAR=400;       // Spawn-Tiefe (vor der Kamera, -Z)
+let RADIUS=70;                   // radialer Streuradius des Tunnels
+
+// Partikel-Daten
+const pz=new Float32Array(NMAX);          // aktuelle Z-Tiefe (positiv = Entfernung vor Kamera)
+const pang=new Float32Array(NMAX);        // Winkel um die Flugachse
+const prad=new Float32Array(NMAX);        // radialer Abstand von der Achse
+const pseed=new Float32Array(NMAX);       // Helligkeits-/Farbvariation
+
+function spawn(i, far){
+  pz[i] = far ? (Z_NEAR + Math.random()*(Z_FAR-Z_NEAR)) : (Z_FAR*0.5 + Math.random()*Z_FAR*0.5);
+  pang[i] = Math.random()*Math.PI*2;
+  // radiale Verteilung: leichter Hohlraum in der Mitte (Tunnel-Loch), mehr Dichte aussen
+  prad[i] = (0.15 + Math.random()*0.85) * RADIUS;
+  pseed[i] = Math.random();
+}
+for(let i=0;i<NMAX;i++) spawn(i,true);
+
+const U={
+  uC1:{value:new THREE.Color('#0a1a3a')},  // ferne / dunkle Streaks
+  uC2:{value:new THREE.Color('#3aa0ff')},  // mittlere
+  uC3:{value:new THREE.Color('#ffffff')},  // nahe / heisse Spitzen
+  uOpacity:{value:0.9},
+  uColorMix:{value:0.5},   // wie stark Farbe nach Tiefe variiert
+  uShape:{value:0},        // 0 dot, 1 ring, 2 square, 3 star, 4 cross (Streak-Koepfe)
+};
+
+/* ---- Streak-Geometrie: jeder Partikel = 1 Liniensegment (2 Vertices) ----
+   Positionen werden pro Frame auf der CPU gesetzt (Start = aktuelle Tiefe,
+   Ende = leicht weiter hinten, Laenge ~ Geschwindigkeit). Alpha + Farbe per Vertex. */
+const segPos=new Float32Array(NMAX*2*3);
+const segCol=new Float32Array(NMAX*2*3);
+const segAlpha=new Float32Array(NMAX*2);
+const streakGeo=new THREE.BufferGeometry();
+streakGeo.setAttribute('position', new THREE.BufferAttribute(segPos,3).setUsage(THREE.DynamicDrawUsage));
+streakGeo.setAttribute('aCol', new THREE.BufferAttribute(segCol,3).setUsage(THREE.DynamicDrawUsage));
+streakGeo.setAttribute('aAlpha', new THREE.BufferAttribute(segAlpha,1).setUsage(THREE.DynamicDrawUsage));
+const streakMat=new THREE.ShaderMaterial({
+  uniforms:U, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
+  vertexShader:`
+    precision highp float;
+    attribute vec3 aCol; attribute float aAlpha;
+    varying vec3 vCol; varying float vA;
+    void main(){ vCol=aCol; vA=aAlpha;
+      gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader:`
+    precision highp float; uniform float uOpacity;
+    varying vec3 vCol; varying float vA;
+    void main(){ gl_FragColor=vec4(vCol, vA*uOpacity); }`,
+});
+const streaks=new THREE.LineSegments(streakGeo,streakMat);
+scene.add(streaks);
+
+/* ---- Punkt-Kerne an den Streak-Spitzen (heller Glow) fuer Bloom ---- */
+const headPos=new Float32Array(NMAX*3);
+const headCol=new Float32Array(NMAX*3);
+const headAlpha=new Float32Array(NMAX);
+const headGeo=new THREE.BufferGeometry();
+headGeo.setAttribute('position', new THREE.BufferAttribute(headPos,3).setUsage(THREE.DynamicDrawUsage));
+headGeo.setAttribute('aCol', new THREE.BufferAttribute(headCol,3).setUsage(THREE.DynamicDrawUsage));
+headGeo.setAttribute('aAlpha', new THREE.BufferAttribute(headAlpha,1).setUsage(THREE.DynamicDrawUsage));
+const headMat=new THREE.ShaderMaterial({
+  uniforms:U, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
+  vertexShader:`
+    precision highp float;
+    attribute vec3 aCol; attribute float aAlpha;
+    varying vec3 vCol; varying float vA;
+    void main(){ vCol=aCol; vA=aAlpha;
+      vec4 mv=modelViewMatrix*vec4(position,1.0); float vz=-mv.z;
+      gl_PointSize = clamp(900.0/vz, 1.0, 26.0);
+      gl_Position=projectionMatrix*mv; }`,
+  fragmentShader:`
+    precision highp float; uniform float uOpacity; uniform int uShape;
+    varying vec3 vCol; varying float vA;
+    float shapeMask(vec2 p){
+      float r=length(p);
+      if(uShape==0){ return smoothstep(0.5,0.0,r); }
+      else if(uShape==1){ float dd=abs(r-0.34); return smoothstep(0.13,0.0,dd); }
+      else if(uShape==2){ float sq=max(abs(p.x),abs(p.y)); return smoothstep(0.46,0.30,sq); }
+      else if(uShape==3){ vec2 a=abs(p);
+        float spike=smoothstep(0.5,0.0, min(a.x,a.y)*6.0 + r*0.6);
+        float core=smoothstep(0.32,0.0,r); return clamp(max(spike,core),0.0,1.0); }
+      else { vec2 a=abs(p);
+        float h=smoothstep(0.10,0.04,a.y)*smoothstep(0.48,0.40,a.x);
+        float v=smoothstep(0.10,0.04,a.x)*smoothstep(0.48,0.40,a.y);
+        return clamp(h+v,0.0,1.0); }
+    }
+    void main(){ float m=shapeMask(gl_PointCoord-0.5); if(m<=0.001) discard;
+      vec3 c=vCol + vec3(1.0)*pow(m,6.0)*1.5;   // heisser Kern -> Bloom
+      gl_FragColor=vec4(c, m*vA*uOpacity); }`,
+});
+const heads=new THREE.Points(headGeo,headMat);
+scene.add(heads);
+
+const PARAMS={ speed:90, streak:1.0, headGlow:1.0, swirl:0.0, driftAng:0.0, driftAmt:0.0 };
+
+/* ============================================================ POST-PIPELINE (HDR -> DOF -> Bright -> Blur -> ACES) ============================================================ */
+function mkRT(){ return new THREE.WebGLRenderTarget(1,1,{minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,wrapS:THREE.ClampToEdgeWrapping,wrapT:THREE.ClampToEdgeWrapping}); }
+const rtScene=mkRT(), rtDepth=mkRT(), rtDof=mkRT(), rtBright=mkRT(), rtBlur=mkRT();
+const quadGeo=new THREE.PlaneGeometry(2,2);
+const quadCam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+function fsPass(uniforms,frag){
+  const sc=new THREE.Scene();
+  const m=new THREE.ShaderMaterial({uniforms,vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}`,fragmentShader:frag,depthTest:false,depthWrite:false});
+  sc.add(new THREE.Mesh(quadGeo,m));
+  return {scene:sc,mat:m,render(t){renderer.setRenderTarget(t||null);renderer.render(sc,quadCam);}};
+}
+// DOF nutzt Tiefe aus dem Depth-Pass (heads schreiben Tiefe)
+const dof=fsPass({uScene:{value:rtScene.texture},uDepth:{value:rtDepth.texture},uRes:{value:new THREE.Vector2(1,1)},uFocus:{value:0.0},uDofAmt:{value:0.5},uFalloff:{value:1.0}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uScene,uDepth; uniform vec2 uRes; uniform float uFocus,uDofAmt,uFalloff;
+  void main(){
+    vec3 c=texture2D(uScene,vUv).rgb;
+    float depth=texture2D(uDepth,vUv).r;
+    float symm=abs(depth-uFocus);
+    float behind=max(0.0,depth-uFocus);
+    float coc=clamp(mix(symm,behind,uFalloff)*2.4,0.0,1.0)*uDofAmt;
+    vec2 px=coc*9.0/uRes;
+    vec3 s=c; float wsum=1.0;
+    for(int i=0;i<8;i++){ float a=float(i)*0.785398; vec2 off=vec2(cos(a),sin(a))*px; s+=texture2D(uScene,vUv+off).rgb; wsum+=1.0; }
+    for(int i=0;i<8;i++){ float a=float(i)*0.785398+0.3927; vec2 off=vec2(cos(a),sin(a))*px*1.85; s+=texture2D(uScene,vUv+off).rgb*0.6; wsum+=0.6; }
+    gl_FragColor=vec4(s/wsum, depth);
+  }`);
+const bright=fsPass({uTex:{value:rtDof.texture},uThresh:{value:0.45}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uTex; uniform float uThresh;
+  void main(){ vec3 c=texture2D(uTex,vUv).rgb; float l=max(max(c.r,c.g),c.b);
+    gl_FragColor=vec4(c*smoothstep(uThresh,uThresh+0.2,l),1.0); }`);
+const blur=fsPass({uTex:{value:null},uRes:{value:new THREE.Vector2(1,1)},uDir:{value:new THREE.Vector2(1,0)}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uTex; uniform vec2 uRes,uDir;
+  void main(){ vec2 px=uDir/uRes; vec3 s=vec3(0.); float w0=0.204,w1=0.180,w2=0.123,w3=0.066,w4=0.028,w5=0.009;
+    s+=texture2D(uTex,vUv).rgb*w0;
+    s+=(texture2D(uTex,vUv+px*1.5).rgb+texture2D(uTex,vUv-px*1.5).rgb)*w1;
+    s+=(texture2D(uTex,vUv+px*3.5).rgb+texture2D(uTex,vUv-px*3.5).rgb)*w2;
+    s+=(texture2D(uTex,vUv+px*5.5).rgb+texture2D(uTex,vUv-px*5.5).rgb)*w3;
+    s+=(texture2D(uTex,vUv+px*7.5).rgb+texture2D(uTex,vUv-px*7.5).rgb)*w4;
+    s+=(texture2D(uTex,vUv+px*9.5).rgb+texture2D(uTex,vUv-px*9.5).rgb)*w5;
+    gl_FragColor=vec4(s,1.); }`);
+const tonemap=fsPass({uScene:{value:rtDof.texture},uBloom:{value:rtBright.texture},uRes:{value:new THREE.Vector2(1,1)},
+  uTime:{value:0},uBloomAmt:{value:1.4},uGrain:{value:0.02},uVignette:{value:0.45},uBg1:{value:U.uC1.value}},`
+  precision highp float; varying vec2 vUv; uniform sampler2D uScene,uBloom; uniform vec2 uRes; uniform float uTime,uBloomAmt,uGrain,uVignette; uniform vec3 uBg1;
+  vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.,1.); }
+  float hash(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+  void main(){
+    vec3 sc=texture2D(uScene,vUv).rgb;
+    vec3 bl=texture2D(uBloom,vUv).rgb;
+    float d=length(vUv-0.5);
+    // radialer Hintergrund-Gradient: Zentrum (Fluchtpunkt) etwas heller
+    vec3 bg=uBg1*mix(0.5,0.05, d);
+    vec3 c=aces(sc + bg + bl*uBloomAmt);
+    // Vignette: greift ueber den realen d-Bereich (Mitte 0 .. Ecke ~0.71), kraeftiger
+    float vig=smoothstep(0.25,0.72,d);
+    c*=1.0-vig*uVignette;
+    // Grain: feinkoerniges Rauschen, in dunklen Flaechen verstaerkt (dort sichtbarer)
+    float g=hash(fract(vUv*vec2(uRes.x/3.0,uRes.y/3.0))+uTime*0.37)-0.5;
+    float lum=dot(c,vec3(0.299,0.587,0.114));
+    c+=g*uGrain*(1.0+ (1.0-lum)*1.5);
+    gl_FragColor=vec4(clamp(c,0.0,1.0),1.);
+  }`);
+
+function resize(){
+  W=innerWidth; H=innerHeight; renderer.setSize(W,H,false);
+  const [pw,ph]=pxDims(); renderer.setPixelRatio(1);
+  rtScene.setSize(pw,ph); rtDepth.setSize(pw,ph); rtDof.setSize(pw,ph);
+  rtBright.setSize(Math.floor(pw/2),Math.floor(ph/2)); rtBlur.setSize(Math.floor(pw/2),Math.floor(ph/2));
+  camera.aspect=W/H; camera.updateProjectionMatrix();
+  tonemap.mat.uniforms.uRes.value.set(pw,ph);
+  dof.mat.uniforms.uRes.value.set(pw,ph);
+}
+addEventListener('resize',resize);
+
+/* ============================================================ SIMULATION ============================================================ */
+const _c1=new THREE.Color(), _c2=new THREE.Color(), _c3=new THREE.Color(), _cc=new THREE.Color();
+function step(dt){
+  const sp=PARAMS.speed, stk=PARAMS.streak, sw=PARAMS.swirl;
+  _c1.copy(U.uC1.value); _c2.copy(U.uC2.value); _c3.copy(U.uC3.value);
+  const cm=U.uColorMix.value;
+  for(let i=0;i<N;i++){
+    pz[i]-=sp*dt;                       // auf Kamera zu (Tiefe sinkt)
+    if(sw!==0) pang[i]+=sw*dt*(1.0-pz[i]/Z_FAR)*0.5;  // optionaler Drall, nahe staerker
+    if(pz[i]<=Z_NEAR){ spawn(i,false); continue; }    // recyceln weit hinten
+    const z=pz[i], a=pang[i], rad=prad[i];
+    const ca=Math.cos(a), sn=Math.sin(a);
+    const x=ca*rad, y=sn*rad;
+    // Streak-Laenge: proportional zu Geschwindigkeit, Naehe und Streak-Regler
+    const near=1.0 - z/Z_FAR;                 // 0 fern .. 1 nah
+    const len=Math.min(z-Z_NEAR, sp*dt*stk*(1.0+near*6.0));
+    // Start (vorne, naeher an Kamera) und Ende (hinten)
+    const b=i*6;
+    segPos[b]  =x; segPos[b+1]=y; segPos[b+2]=-(z);
+    segPos[b+3]=x; segPos[b+4]=y; segPos[b+5]=-(z+len);
+    // Farbe nach Tiefe: fern uC1 -> mittel uC2 -> nah uC3
+    let tcol=near;
+    if(tcol<0.5){ _cc.copy(_c1).lerp(_c2, tcol*2.0); }
+    else { _cc.copy(_c2).lerp(_c3, (tcol-0.5)*2.0); }
+    _cc.lerp(_c2, (1.0-cm)*0.0); // (cm steuert kuenftig Saettigung; hier neutral)
+    const br=0.35+pseed[i]*0.4 + near*0.6;    // Helligkeit, nahe heller
+    const cb=i*6, ca2=i*2;
+    // vorderer Vertex hell, hinterer abgedunkelt (Streak-Verlauf)
+    segCol[cb]  =_cc.r*br;     segCol[cb+1]=_cc.g*br;     segCol[cb+2]=_cc.b*br;
+    segCol[cb+3]=_cc.r*br*0.2; segCol[cb+4]=_cc.g*br*0.2; segCol[cb+5]=_cc.b*br*0.2;
+    segAlpha[ca2]=Math.min(1.0,0.3+near); segAlpha[ca2+1]=0.0;  // hinten transparent
+    // Head-Punkt an der Spitze
+    const hb=i*3;
+    headPos[hb]=x; headPos[hb+1]=y; headPos[hb+2]=-(z);
+    headCol[hb]=_cc.r*br; headCol[hb+1]=_cc.g*br; headCol[hb+2]=_cc.b*br;
+    headAlpha[i]=Math.min(1.0, near*1.2)*PARAMS.headGlow;
+  }
+  streakGeo.setDrawRange(0,N*2);
+  streakGeo.attributes.position.needsUpdate=true;
+  streakGeo.attributes.aCol.needsUpdate=true;
+  streakGeo.attributes.aAlpha.needsUpdate=true;
+  headGeo.setDrawRange(0,N);
+  headGeo.attributes.position.needsUpdate=true;
+  headGeo.attributes.aCol.needsUpdate=true;
+  headGeo.attributes.aAlpha.needsUpdate=true;
+}
+
+/* ---- Depth-Pass: heads schreiben normierte View-Tiefe fuer DOF ---- */
+const depthMat=new THREE.ShaderMaterial({
+  uniforms:U, transparent:true, depthWrite:false, blending:THREE.NormalBlending,
+  vertexShader:`
+    precision highp float; varying float vDepthN;
+    void main(){ vec4 mv=modelViewMatrix*vec4(position,1.0); float vz=-mv.z;
+      vDepthN=clamp(vz/400.0,0.0,1.0);
+      gl_PointSize=clamp(900.0/vz,1.0,26.0)*1.4;
+      gl_Position=projectionMatrix*mv; }`,
+  fragmentShader:`precision highp float; varying float vDepthN;
+    void main(){ vec2 d=gl_PointCoord-0.5; if(length(d)>0.5) discard;
+      gl_FragColor=vec4(vDepthN,vDepthN,vDepthN,1.0); }`,
+});
+
+/* ============================================================ PRESETS / UI ============================================================ */
+const PRESETS=[
+  {name:'News Blue', c1:'#0a1a3a', c2:'#3aa0ff', c3:'#ffffff'},
+  {name:'Warp Cyan', c1:'#021a22', c2:'#17d6e0', c3:'#eaffff'},
+  {name:'Violet',    c1:'#160a30', c2:'#8a5cff', c3:'#ffffff'},
+  {name:'Ember',     c1:'#1a0702', c2:'#ff7326', c3:'#fff0d6'},
+  {name:'Mono',      c1:'#0a0c10', c2:'#9aa3b3', c3:'#ffffff'},
+  {name:'Toxic',     c1:'#06160a', c2:'#52e06a', c3:'#f0ffe0'},
+];
+const colorsEl=document.getElementById('colors'),flightEl=document.getElementById('flight'),distEl=document.getElementById('dist'),lookEl=document.getElementById('look'),ppctl=document.getElementById('ppctl'),qbtns=document.getElementById('qbtns'),presetsEl=document.getElementById('presets');
+
+function buildPresets(){ presetsEl.innerHTML='';
+  PRESETS.forEach(p=>{ const b=document.createElement('button');
+    b.innerHTML=`<span class="sw" style="background:linear-gradient(90deg,${p.c1},${p.c2},${p.c3})"></span>${p.name}`;
+    b.onclick=()=>{ U.uC1.value.set(p.c1); U.uC2.value.set(p.c2); U.uC3.value.set(p.c3); buildColors(); };
+    presetsEl.appendChild(b); }); }
+function buildColors(){ colorsEl.innerHTML='';
+  [['uC1','Fern / dunkel'],['uC2','Mittlere Tiefe'],['uC3','Nah / heiß']].forEach(([u,lab])=>{ const row=document.createElement('div'); row.className='row';
+    row.innerHTML=`<label><span>${lab}</span></label>`;
+    const inp=document.createElement('input'); inp.type='color'; inp.value='#'+U[u].value.getHexString();
+    inp.oninput=()=>U[u].value.set(inp.value); row.appendChild(inp); colorsEl.appendChild(row); }); }
+// Slider fuer U-Uniforms
+function uSlider(parent,u,lab,mn,mx,st){ const row=document.createElement('div'); row.className='row'; const val=U[u].value;
+  row.innerHTML=`<label><span>${lab}</span><span class="v" id="u_${u}">${(+val).toFixed(2)}</span></label>`;
+  const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=val;
+  inp.oninput=()=>{ U[u].value=+inp.value; document.getElementById('u_'+u).textContent=(+inp.value).toFixed(2); };
+  row.appendChild(inp); parent.appendChild(row); }
+// Slider fuer PARAMS
+function pSlider(parent,key,lab,mn,mx,st,dec){ dec=dec||0; const row=document.createElement('div'); row.className='row'; const val=PARAMS[key];
+  row.innerHTML=`<label><span>${lab}</span><span class="v" id="p_${key}">${(+val).toFixed(dec)}</span></label>`;
+  const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=val;
+  inp.oninput=()=>{ PARAMS[key]=+inp.value; document.getElementById('p_'+key).textContent=(+inp.value).toFixed(dec); };
+  row.appendChild(inp); parent.appendChild(row); }
+
+function buildFlight(){ flightEl.innerHTML='';
+  pSlider(flightEl,'speed','Fluggeschwindigkeit',5,260,1,0);
+  pSlider(flightEl,'streak','Streak-Länge',0,3,.05,2);
+  pSlider(flightEl,'swirl','Drall (Rotation)',-1.5,1.5,.05,2);
+  pSlider(flightEl,'driftAmt','Flug-Drift (Stärke)',0,40,1,0);
+  // Flugrichtung als 360°-Drehrad
+  const dlab=document.createElement('label'); dlab.style.cssText='display:flex;justify-content:space-between;font-size:11px;color:var(--txt2);margin:11px 0 6px';
+  dlab.innerHTML='<span>Flugrichtung</span><span class="v" id="v_dang">0°</span>';
+  flightEl.appendChild(dlab);
+  const dialWrap=document.createElement('div'); dialWrap.style.cssText='display:flex;justify-content:center;margin:4px 0 2px';
+  dialWrap.innerHTML=`<svg id="flyDial" width="78" height="78" viewBox="0 0 78 78" style="cursor:pointer;touch-action:none">
+    <circle cx="39" cy="39" r="34" fill="rgba(255,255,255,.04)" stroke="var(--line)" stroke-width="1"/>
+    <circle cx="39" cy="39" r="3" fill="var(--txt2)"/>
+    <line id="flyPtr" x1="39" y1="39" x2="39" y2="9" stroke="var(--acc)" stroke-width="2" stroke-linecap="round"/>
+    <circle id="flyKnob" cx="39" cy="9" r="4.5" fill="var(--acc)"/>
+  </svg>`;
+  flightEl.appendChild(dialWrap);
+  const svg=dialWrap.querySelector('#flyDial'), ptr=dialWrap.querySelector('#flyPtr'), knob=dialWrap.querySelector('#flyKnob');
+  function setAngle(rad){
+    PARAMS.driftAng=rad;
+    const cx=39,cy=39,R=30; const px=cx+Math.sin(rad)*R, py=cy-Math.cos(rad)*R;
+    ptr.setAttribute('x2',px.toFixed(1)); ptr.setAttribute('y2',py.toFixed(1));
+    knob.setAttribute('cx',px.toFixed(1)); knob.setAttribute('cy',py.toFixed(1));
+    let deg=Math.round(rad*180/Math.PI); if(deg<0)deg+=360;
+    document.getElementById('v_dang').textContent=deg+'°';
+  }
+  function pAng(ev){ const r=svg.getBoundingClientRect();
+    const x=(ev.touches?ev.touches[0].clientX:ev.clientX)-r.left-39*(r.width/78);
+    const y=(ev.touches?ev.touches[0].clientY:ev.clientY)-r.top-39*(r.height/78);
+    return Math.atan2(x,-y); }
+  let drag=false;
+  svg.addEventListener('pointerdown',ev=>{ drag=true; setAngle(pAng(ev)); svg.setPointerCapture(ev.pointerId); });
+  svg.addEventListener('pointermove',ev=>{ if(drag){ setAngle(pAng(ev)); ev.preventDefault(); } });
+  svg.addEventListener('pointerup',()=>drag=false);
+  setAngle(PARAMS.driftAng);
+}
+function buildDist(){ distEl.innerHTML='';
+  // Partikelzahl
+  const row=document.createElement('div'); row.className='row';
+  row.innerHTML=`<label><span>Partikel</span><span class="v" id="v_N">${N}</span></label>`;
+  const inp=document.createElement('input'); inp.type='range'; inp.min=200; inp.max=NMAX; inp.step=100; inp.value=N;
+  inp.oninput=()=>{ N=+inp.value; document.getElementById('v_N').textContent=N; };
+  row.appendChild(inp); distEl.appendChild(row);
+  // Tunnel-Radius
+  const r2=document.createElement('div'); r2.className='row';
+  r2.innerHTML=`<label><span>Tunnel-Weite</span><span class="v" id="v_rad">${RADIUS}</span></label>`;
+  const i2=document.createElement('input'); i2.type='range'; i2.min=15; i2.max=160; i2.step=5; i2.value=RADIUS;
+  i2.oninput=()=>{ RADIUS=+i2.value; document.getElementById('v_rad').textContent=RADIUS; };
+  r2.appendChild(i2); distEl.appendChild(r2); }
+function buildLook(){ lookEl.innerHTML='';
+  // Kopf-Form
+  const slab=document.createElement('label'); slab.innerHTML='<span>Kopf-Form</span>'; slab.style.cssText='display:block;font-size:11px;color:var(--txt2);margin-bottom:6px';
+  lookEl.appendChild(slab);
+  const swrap=document.createElement('div'); swrap.className='qbtns';
+  ['Dot','Ring','Square','Star','Cross'].forEach((s,idx)=>{ const b=document.createElement('button'); b.textContent=s; if(idx===U.uShape.value) b.className='on';
+    b.onclick=()=>{ U.uShape.value=idx; [...swrap.children].forEach((c,i)=>c.className=i===idx?'on':''); };
+    swrap.appendChild(b); });
+  lookEl.appendChild(swrap);
+  uSlider(lookEl,'uOpacity','Deckkraft',0,1.5,.05);
+  pSlider(lookEl,'headGlow','Kopf-Glühen',0,2,.05,2); }
+function buildPP(){ ppctl.innerHTML='';
+  const dofItems=[['uDofAmt','Tiefenschärfe (DOF)',0,2,.05],['uFocus','DOF-Fokus',0,1,.02],['uFalloff','DOF-Verlauf (symm→Tiefe)',0,1,.05]];
+  dofItems.forEach(([key,lab,mn,mx,st])=>{ const row=document.createElement('div'); row.className='row'; const val=dof.mat.uniforms[key].value;
+    row.innerHTML=`<label><span>${lab}</span><span class="v" id="d_${key}">${(+val).toFixed(2)}</span></label>`;
+    const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=val;
+    inp.oninput=()=>{ dof.mat.uniforms[key].value=+inp.value; document.getElementById('d_'+key).textContent=(+inp.value).toFixed(2); };
+    row.appendChild(inp); ppctl.appendChild(row); });
+  const tm=[['uBloomAmt','Bloom-Stärke',0,5,.05]];
+  tm.forEach(([u,lab,mn,mx,st])=>{ const row=document.createElement('div'); row.className='row'; const val=tonemap.mat.uniforms[u].value;
+    row.innerHTML=`<label><span>${lab}</span><span class="v" id="pp_${u}">${val.toFixed(2)}</span></label>`;
+    const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=val;
+    inp.oninput=()=>{ tonemap.mat.uniforms[u].value=+inp.value; document.getElementById('pp_'+u).textContent=(+inp.value).toFixed(2); };
+    row.appendChild(inp); ppctl.appendChild(row); });
+  { const row=document.createElement('div'); row.className='row'; const val=bright.mat.uniforms.uThresh.value;
+    row.innerHTML=`<label><span>Bloom-Schwelle</span><span class="v" id="pp_thr">${val.toFixed(2)}</span></label>`;
+    const inp=document.createElement('input'); inp.type='range'; inp.min=0; inp.max=1.5; inp.step=.02; inp.value=val;
+    inp.oninput=()=>{ bright.mat.uniforms.uThresh.value=+inp.value; document.getElementById('pp_thr').textContent=(+inp.value).toFixed(2); };
+    row.appendChild(inp); ppctl.appendChild(row); }
+  const tm2=[['uGrain','Grain',0,.3,.01],['uVignette','Vignette',0,1,.05]];
+  tm2.forEach(([u,lab,mn,mx,st])=>{ const row=document.createElement('div'); row.className='row'; const val=tonemap.mat.uniforms[u].value;
+    row.innerHTML=`<label><span>${lab}</span><span class="v" id="pp_${u}">${val.toFixed(2)}</span></label>`;
+    const inp=document.createElement('input'); inp.type='range'; inp.min=mn; inp.max=mx; inp.step=st; inp.value=val;
+    inp.oninput=()=>{ tonemap.mat.uniforms[u].value=+inp.value; document.getElementById('pp_'+u).textContent=(+inp.value).toFixed(2); };
+    row.appendChild(inp); ppctl.appendChild(row); }); }
+function buildQ(){ const opts=[['½',0.5],['¾',0.75],['1×',1.0]]; qbtns.innerHTML='';
+  opts.forEach(([lab,v])=>{ const b=document.createElement('button'); b.textContent=lab; if(Math.abs(v-RES_SCALE)<0.01) b.className='on';
+    b.onclick=()=>{ RES_SCALE=v; resize(); buildQ(); }; qbtns.appendChild(b); }); }
+
+buildPresets(); buildColors(); buildFlight(); buildDist(); buildLook(); buildPP(); buildQ(); resize();
+
+/* ============================================================ LOOP ============================================================ */
+let last=performance.now(),fAcc=0,fN=0,fT=0; const hud=document.getElementById('hud');
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000); last=now; const t=now/1000;
+  tonemap.mat.uniforms.uTime.value=t; tonemap.mat.uniforms.uBg1.value=U.uC1.value;
+  step(dt);
+  // Flugrichtung: Blickpunkt seitlich versetzen -> Fluchtpunkt wandert (gerichteter Flug)
+  const dax=Math.sin(PARAMS.driftAng)*PARAMS.driftAmt;
+  const day=-Math.cos(PARAMS.driftAng)*PARAMS.driftAmt;
+  camera.lookAt(dax, day, -100);
+
+  // 1) Szene -> rtScene
+  renderer.setRenderTarget(rtScene); renderer.setClearColor(0x000000,1); renderer.clear();
+  renderer.render(scene,camera);
+  // 2) Tiefen-Pass (nur heads) -> rtDepth
+  heads.material=depthMat; streaks.visible=false;
+  renderer.setRenderTarget(rtDepth); renderer.setClearColor(0xffffff,1); renderer.clear();
+  renderer.render(scene,camera);
+  heads.material=headMat; streaks.visible=true;
+  // 3) DOF
+  dof.mat.uniforms.uScene.value=rtScene.texture; dof.mat.uniforms.uDepth.value=rtDepth.texture; dof.render(rtDof);
+  // 4) Bloom (zwei Blur-Durchgaenge)
+  bright.mat.uniforms.uTex.value=rtDof.texture; bright.render(rtBright);
+  blur.mat.uniforms.uTex.value=rtBright.texture; blur.mat.uniforms.uRes.value.set(rtBright.width,rtBright.height);
+  blur.mat.uniforms.uDir.value.set(1,0); blur.render(rtBlur);
+  blur.mat.uniforms.uTex.value=rtBlur.texture; blur.mat.uniforms.uDir.value.set(0,1); blur.render(rtBright);
+  blur.mat.uniforms.uTex.value=rtBright.texture; blur.mat.uniforms.uDir.value.set(2.5,0); blur.render(rtBlur);
+  blur.mat.uniforms.uTex.value=rtBlur.texture; blur.mat.uniforms.uDir.value.set(0,2.5); blur.render(rtBright);
+  // 5) Tonemap -> Screen
+  tonemap.mat.uniforms.uScene.value=rtDof.texture; tonemap.mat.uniforms.uBloom.value=rtBright.texture; tonemap.render(null);
+
+  fAcc+=1/dt; fN++; fT+=dt; if(fT>0.5){ const [pw,ph]=pxDims(); hud.textContent=Math.round(fAcc/fN)+' fps · '+pw+'×'+ph+' · '+N.toLocaleString()+' streaks'; fAcc=fN=fT=0; }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
