@@ -14,12 +14,25 @@ func _ready() -> void:
 func _build_grid() -> void:
 	var verts := PackedVector3Array()
 	verts.resize(grid_w * grid_h)
+	var col_spacing := span_x / float(grid_w - 1)
+	var row_spacing := span_z / float(grid_h - 1)
+	# Per-point jitter breaks the perfectly regular lattice. A regular point grid
+	# beats against the pixel grid and produces screen-locked moire stripes that
+	# move with the camera and survive every camera/post fix. Seeded = reproducible.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1337
 	var i := 0
 	for zz in range(grid_h):
+		# Progressive X-drift: 3 column-widths over full depth.
+		# Prevents identical q.x sampling along screen-columns (wave-phase lock),
+		# which caused systematic dark vertical stripes when dir=(0,1).
+		var x_drift := (float(zz) / float(grid_h - 1)) * col_spacing * 3.0
 		for xx in range(grid_w):
-			var fx := (float(xx) / float(grid_w - 1) - 0.5) * span_x
+			var jx := rng.randf_range(-0.5, 0.5) * col_spacing
+			var jz := rng.randf_range(-0.4, 0.4) * row_spacing
+			var fx := (float(xx) / float(grid_w - 1) - 0.5) * span_x + x_drift + jx
 			# Z von 0 (nah) nach span_z (fern), damit das Gitter in die Tiefe zieht
-			var fz := (float(zz) / float(grid_h - 1)) * span_z
+			var fz := (float(zz) / float(grid_h - 1)) * span_z + jz
 			verts[i] = Vector3(fx, 0.0, fz)
 			i += 1
 

@@ -1,7 +1,7 @@
 shader_type spatial;
 // Punkte haben keine Flaeche -> kein Lighting, nur Emission. unshaded.
 // depth_draw_opaque sorgt dafuer, dass DOF (im WorldEnvironment) korrekte Tiefe bekommt.
-render_mode unshaded, depth_draw_opaque, cull_disabled;
+render_mode unshaded, depth_draw_never, blend_add, cull_disabled;
 
 // ---- Wellen-Parameter (entsprechen den Three.js-Uniforms) ----
 group_uniforms Wave;
@@ -14,6 +14,7 @@ uniform float warp       : hint_range(0.0, 2.0)   = 0.4;    // uWarp
 uniform vec2  dir        = vec2(0.0, 1.0);                  // uDir (Fliessrichtung, xz-Ebene)
 uniform float y_off      : hint_range(-20.0, 20.0)= 0.0;    // uYOff
 uniform float mirror     : hint_range(0.0, 1.0)   = 0.0;    // uMirror (0/1)
+uniform float x_noise    : hint_range(0.0, 1.0)   = 0.15;   // subtiles horizontales Rauschen (X-Sway)
 group_uniforms;
 
 // ---- Darstellung ----
@@ -55,6 +56,9 @@ void vertex() {
 	vec2 q = pos.xz * freq * 6.0;
 	float h = field(q);
 	pos.y = h * amp + y_off;
+	// subtiles horizontales Rauschen (verformt field() nicht; rein visueller Sway)
+	float xt = TIME * speed;
+	pos.x += x_noise * (sin(pos.z * 0.7 + xt * 1.3) * 0.6 + sin(pos.z * 2.3 - xt * 0.9) * 0.4);
 	VERTEX = pos;
 
 	v_h = clamp(h * 0.5 + 0.5, 0.0, 1.0);
