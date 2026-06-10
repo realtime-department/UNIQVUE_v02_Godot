@@ -1,6 +1,6 @@
 shader_type spatial;
 // Punkte haben keine Flaeche -> kein Lighting, nur Emission. unshaded.
-// depth_draw_opaque sorgt dafuer, dass DOF (im WorldEnvironment) korrekte Tiefe bekommt.
+// depth_draw_never: Punkte schreiben keine Tiefe -> transparentes Additivblending korrekt.
 render_mode unshaded, depth_draw_never, blend_add, cull_disabled;
 
 // ---- Wellen-Parameter (entsprechen den Three.js-Uniforms) ----
