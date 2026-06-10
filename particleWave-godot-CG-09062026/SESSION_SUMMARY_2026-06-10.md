@@ -3,7 +3,7 @@
 ## Project
 UNIQVUE2 broadcast background — Godot 4.6.1 Forward+  
 Port of Three.js/WebGL animated particle-wave field (220×220 point grid, GPU vertex-shader).  
-Path: `particleWave-godot-CG-09062026/particle-wave-godot-extracted/particle-wave-godot/`
+Path: `D:\Git\UNIQVUE_v02_Godot\particleWave-godot-CG-09062026\`
 
 ---
 
@@ -19,7 +19,7 @@ density pile-up dead-center.
 to ~54.9% screen width (field shifts right, no longer center-locked). Camera origin X also
 moved from 9.34 → 0 to re-center the field symmetrically.
 
-**File:** `particle_wave.tscn` — Camera3D transform line:
+**File:** `D:\Git\UNIQVUE_v02_Godot\particleWave-godot-CG-09062026\particle_wave.tscn` — Camera3D transform line:
 ```
 Transform3D(-0.996195, 0.022558, -0.084186, 0, 0.965926, 0.258819, 0.087156, 0.257834, -0.962250, 0, 4, -15)
 ```
@@ -37,7 +37,7 @@ reproducibility). Each point gets a random sub-cell offset in both X and Z, diss
 the lattice regularity. Also added a progressive X-drift over depth (3 column-widths over
 full Z range) to prevent identical `q.x` sampling along screen-columns.
 
-**File:** `grid_builder.gd` — `_build_grid()` function.  
+**File:** `D:\Git\UNIQVUE_v02_Godot\particleWave-godot-CG-09062026\grid_builder.gd` — `_build_grid()` function.  
 User confirmed: **"Fixed."**
 
 ---
@@ -54,7 +54,7 @@ User confirmed: **"Fixed."**
 resamples the 3D frame at non-native sizes, introducing blur and potentially aliasing.
 
 **Fix:** Changed to `window/stretch/mode="disabled"` (correct for a 3D-only project).  
-**File:** `project.godot`
+**File:** `D:\Git\UNIQVUE_v02_Godot\particleWave-godot-CG-09062026\project.godot`
 
 ---
 
@@ -64,7 +64,7 @@ resamples the 3D frame at non-native sizes, introducing blur and potentially ali
 Two-frequency depth-varying horizontal sway on each particle column. Does not touch `field()`
 (frozen). Controlled by inspector-tunable uniform `x_noise` (Wave group, 0.0–1.0, default 0.15).
 
-**Shader:** `particle_wave.gdshader`
+**Shader:** `D:\Git\UNIQVUE_v02_Godot\particleWave-godot-CG-09062026\particle_wave.gdshader`
 ```glsl
 uniform float x_noise : hint_range(0.0, 1.0) = 0.15;
 
@@ -73,7 +73,7 @@ float xt = TIME * speed;
 pos.x += x_noise * (sin(pos.z * 0.7 + xt * 1.3) * 0.6 + sin(pos.z * 2.3 - xt * 0.9) * 0.4);
 ```
 
-**Scene:** `particle_wave.tscn` — `shader_parameter/x_noise = 0.15`
+**Scene:** `D:\Git\UNIQVUE_v02_Godot\particleWave-godot-CG-09062026\particle_wave.tscn` — `shader_parameter/x_noise = 0.15`
 
 Tuning: 0.05–0.08 = barely visible / 0.15 = default subtle / 0.25–0.3 = visible sway.
 
@@ -83,18 +83,18 @@ Tuning: 0.05–0.08 = barely visible / 0.15 = default subtle / 0.25–0.3 = visi
 
 | File | Key State |
 |------|-----------|
-| `particle_wave.tscn` | Camera yaw +5°, origin X=0, x_noise=0.15 |
-| `particle_wave.gdshader` | x_noise uniform + sway in vertex(); field() frozen |
-| `grid_builder.gd` | Seeded jitter (seed=1337) + x_drift; regular lattice dissolved |
-| `project.godot` | stretch/mode=disabled, msaa_3d=2, 1920×1080 Forward+ |
+| `D:\Git\UNIQVUE_v02_Godot\particleWave-godot-CG-09062026\particle_wave.tscn` | Camera yaw +5°, origin X=0, x_noise=0.15 |
+| `D:\Git\UNIQVUE_v02_Godot\particleWave-godot-CG-09062026\particle_wave.gdshader` | x_noise uniform + sway in vertex(); field() frozen |
+| `D:\Git\UNIQVUE_v02_Godot\particleWave-godot-CG-09062026\grid_builder.gd` | Seeded jitter (seed=1337) + x_drift; regular lattice dissolved |
+| `D:\Git\UNIQVUE_v02_Godot\particleWave-godot-CG-09062026\project.godot` | stretch/mode=disabled, msaa_3d=2, 1920×1080 Forward+ |
 
-Backups of all changed files saved with `.2026-06-10.bak` suffix in the same directory.
+Backups of all changed files saved with `.2026-06-10.bak` suffix in `D:\Git\UNIQVUE_v02_Godot\particleWave-godot-CG-09062026\`.
 
 ---
 
 ## Known Stale Item (Minor)
 
-`particle_wave.gdshader` line 3 comment says `depth_draw_opaque`; line 4 actually uses
+`D:\Git\UNIQVUE_v02_Godot\particleWave-godot-CG-09062026\particle_wave.gdshader` line 3 comment says `depth_draw_opaque`; line 4 actually uses
 `depth_draw_never`. Harmless — comment is wrong, shader behavior is correct.
 
 ---
@@ -109,7 +109,7 @@ Backups of all changed files saved with `.2026-06-10.bak` suffix in the same dir
 - Already checked. Ask if done anyways for confirmation.
 
 ### Step 2 — Fix Stale Shader Comment (quick housekeeping, ~1 min)
-- `particle_wave.gdshader` line 3: replace  
+- `D:\Git\UNIQVUE_v02_Godot\particleWave-godot-CG-09062026\particle_wave.gdshader` line 3: replace  
   `// depth_draw_opaque sorgt dafuer, dass DOF ...`  
   with  
   `// depth_draw_never: Punkte schreiben keine Tiefe -> transparentes Additivblending korrekt.`
@@ -117,7 +117,7 @@ Backups of all changed files saved with `.2026-06-10.bak` suffix in the same dir
 ### Step 3 — Evaluate msaa_3d=2 on PRIMITIVE_POINTS
 - MSAA has limited effect on point primitives (no geometry edges to smooth).
 - Test with `anti_aliasing/quality/msaa_3d=0` (off) — if visually identical, remove it to
-  save GPU cost. Change in `project.godot` or Project Settings → Rendering → Anti Aliasing.
+  save GPU cost. Change in `D:\Git\UNIQVUE_v02_Godot\particleWave-godot-CG-09062026\project.godot` or Project Settings → Rendering → Anti Aliasing.
 
 ### Step 4 — Next POC: Silk-Mesh
 Port the second broadcast background visual.  
