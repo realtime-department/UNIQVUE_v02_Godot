@@ -9,11 +9,12 @@ background_color = Color(0.0196, 0.0235, 0.0275, 1)
 tonemap_mode = 3
 tonemap_white = 6.0
 glow_enabled = true
-glow_intensity = 0.9
-glow_strength = 1.1
-glow_bloom = 0.15
-glow_blend_mode = 0
-glow_hdr_threshold = 0.85
+glow_intensity = 1.4
+glow_strength = 1.2
+glow_bloom = 0.2
+glow_blend_mode = 2
+glow_hdr_threshold = 0.3
+glow_hdr_scale = 1.0
 adjustment_enabled = true
 adjustment_contrast = 1.05
 adjustment_saturation = 1.1
@@ -29,9 +30,10 @@ shader_parameter/wavelength = 1.0
 shader_parameter/speed = 0.5
 shader_parameter/flow = 0.3
 shader_parameter/warp = 0.4
-shader_parameter/dir = Vector2(0, 1)
+shader_parameter/dir = Vector2(0.2, 1)
 shader_parameter/y_off = 0.0
 shader_parameter/mirror = 0.0
+shader_parameter/x_noise = 0.10000000475
 shader_parameter/point_size = 2.0
 shader_parameter/glow_boost = 1.5
 shader_parameter/col_valley = Color(0.05, 0.1, 0.22, 1)
@@ -40,18 +42,18 @@ shader_parameter/col_crest = Color(0.65, 0.9, 1, 1)
 shader_parameter/z_near = 4.0
 shader_parameter/z_far = 90.0
 
-[node name="ParticleWave" type="Node3D" unique_id=392466745]
+[node name="ParticleWave" type="Node3D" unique_id=523657003]
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1803392850]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=131585124]
 environment = SubResource("Environment_post")
 
-[node name="Camera3D" type="Camera3D" parent="." unique_id=563983399]
-transform = Transform3D(-1.0000001, 2.262668e-08, -8.4443926e-08, 0, 0.9659258, 0.25881907, 8.7422784e-08, 0.25881904, -0.96592593, 0, 6.03, -14)
+[node name="Camera3D" type="Camera3D" parent="." unique_id=256866582]
+transform = Transform3D(-0.996195, 0.022558, -0.084186, 0, 0.965926, 0.258819, 0.087156, 0.257834, -0.96225, 0, 4, -15)
 attributes = SubResource("CameraAttributes_cam")
 fov = 55.0
 near = 0.1
 far = 300.0
 
-[node name="Grid" type="MeshInstance3D" parent="." unique_id=1205416531]
+[node name="Grid" type="MeshInstance3D" parent="." unique_id=2094047886]
 material_override = SubResource("ShaderMaterial_wave")
 script = ExtResource("1_grid")
