@@ -43,9 +43,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_F11:
-				if _spanned: _restore_window() else: _span_all_screens()
+				if _spanned:
+					_restore_window()
+				else:
+					_span_all_screens()
 			KEY_F10:
-				if _previewing: _restore_window() else: _preview_ultrawide()
+				if _previewing:
+					_restore_window()
+				else:
+					_preview_ultrawide()
 
 ## Vereinigungs-Rechteck aller Bildschirme bilden und randloses Fenster darueberlegen.
 func _span_all_screens() -> void:
