@@ -2,7 +2,6 @@
 
 [ext_resource type="Script" uid="uid://bv0oqhv6ptju4" path="res://grid_builder.gd" id="1_grid"]
 [ext_resource type="Shader" uid="uid://bvjkk6vooite6" path="res://particle_wave.gdshader" id="2_shader"]
-[ext_resource type="Script" path="res://runtime_ui.gd" id="3_ui"]
 
 [sub_resource type="Environment" id="Environment_post"]
 background_mode = 1
@@ -58,6 +57,3 @@ far = 300.0
 [node name="Grid" type="MeshInstance3D" parent="." unique_id=2094047886]
 material_override = SubResource("ShaderMaterial_wave")
 script = ExtResource("1_grid")
-
-[node name="UI" type="CanvasLayer" parent="." unique_id=311042700]
-script = ExtResource("3_ui")
