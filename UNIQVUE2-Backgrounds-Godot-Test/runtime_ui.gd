@@ -14,7 +14,7 @@ extends CanvasLayer
 ## - TRANSITION wechselt zur naechsten Szene (Reihenfolge: SCENES).
 
 const PANEL_WIDTH := 300.0      # feste Gesamtbreite (unabhaengig von Szene/Labels)
-const BODY_HEIGHT := 560.0      # feste Hoehe des scrollbaren Reglerbereichs
+const PANEL_HEIGHT := 660.0     # feste Gesamthoehe (unabhaengig vom Inhalt)
 const LABEL_WIDTH := 116.0
 const VALUE_WIDTH := 50.0
 const COL_MUTED := Color(0.62, 0.66, 0.72)
@@ -47,9 +47,12 @@ func _ready() -> void:
 func _build_chrome() -> void:
 	_panel = PanelContainer.new()
 	_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	# Feste Breite. Hoehe ergibt sich aus dem fixierten BODY_HEIGHT (s.u.),
-	# daher fuer alle Szenen identische Gesamtgroesse.
-	_panel.custom_minimum_size = Vector2(PANEL_WIDTH, 0)
+	# Feste Gesamtgroesse fuer ALLE Szenen: Breite UND Hoehe sind gepinnt, der
+	# scrollbare Reglerbereich (s.u.) faengt jede Inhaltsmenge ab -> kein Springen
+	# der Panelgroesse beim Szenenwechsel (z.B. wenn die Scrollbar erscheint).
+	_panel.custom_minimum_size = Vector2(PANEL_WIDTH, PANEL_HEIGHT)
+	_panel.size = Vector2(PANEL_WIDTH, PANEL_HEIGHT)
+	_panel.clip_contents = true
 	_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	var vp := get_viewport().get_visible_rect().size
@@ -76,9 +79,15 @@ func _build_chrome() -> void:
 	# --- Scrollbarer Reglerbereich (Inhalt wird pro Szene neu befuellt) ---
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	# Feste Hoehe: kuerzere Reglerlisten dehnen das Panel nicht, laengere scrollen.
-	scroll.custom_minimum_size = Vector2(0, BODY_HEIGHT)
-	scroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	# Vertikale Scrollbar IMMER anzeigen -> ihr Platz ist dauerhaft reserviert.
+	# Sonst springt der Inhalt seitlich, sobald eine Szene ohne Scrollbar auskommt
+	# und die Reglerspalte die freigewordene Breite einnimmt.
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
+	# Faengt die gesamte Inhaltsvariation ab: fuellt den im Panel verbleibenden
+	# Platz (EXPAND_FILL) und scrollt intern. Dadurch bleibt die Panelgroesse fix,
+	# egal wie viele Regler die Szene erzeugt.
+	scroll.custom_minimum_size = Vector2(0, 0)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	outer.add_child(scroll)
 
 	_rows = VBoxContainer.new()
