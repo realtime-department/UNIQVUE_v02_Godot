@@ -86,6 +86,31 @@ func _build_chrome() -> void:
 	_rows.add_theme_constant_override("separation", 3)
 	scroll.add_child(_rows)
 
+	# --- Transition-Dauer (Zahlenfeld), bleibt ueber alle Szenen bestehen ---
+	var trow := HBoxContainer.new()
+	trow.add_theme_constant_override("separation", 6)
+	trow.custom_minimum_size = Vector2(0, 24)
+	var tlbl := Label.new()
+	tlbl.text = "trans time (s)"
+	tlbl.add_theme_font_size_override("font_size", 11)
+	tlbl.add_theme_color_override("font_color", COL_MUTED)
+	tlbl.custom_minimum_size = Vector2(LABEL_WIDTH, 0)
+	tlbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	trow.add_child(tlbl)
+	var spin := SpinBox.new()
+	spin.min_value = 0.1
+	spin.max_value = 10.0
+	spin.step = 0.05
+	spin.value = _stage_transition_time()
+	spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spin.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	trow.add_child(spin)
+	outer.add_child(trow)
+	spin.value_changed.connect(func(value: float) -> void:
+		var stage := get_node_or_null("/root/BackgroundStage")
+		if stage != null:
+			stage.set("transition_time", value))
+
 	# --- TRANSITION (Szenenwechsel), bleibt ueber alle Szenen bestehen ---
 	var btn := Button.new()
 	btn.text = "TRANSITION"
@@ -472,6 +497,15 @@ func _input(event: InputEvent) -> void:
 		if _panel:
 			_panel.visible = not _panel.visible
 		get_viewport().set_input_as_handled()
+
+
+func _stage_transition_time() -> float:
+	var stage := get_node_or_null("/root/BackgroundStage")
+	if stage != null:
+		var v: Variant = stage.get("transition_time")
+		if v is float or v is int:
+			return float(v)
+	return 1.2
 
 
 func _on_transition() -> void:

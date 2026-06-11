@@ -21,9 +21,12 @@ const SCENES := [
 	"res://tunnel_wave.tscn",
 	"res://particle_wave.tscn",
 ]
-const TRANSITION_TIME := 1.2
+const TRANSITION_TIME := 1.2   # Default; zur Laufzeit ueber transition_time anpassbar.
 const OUT_ZOOM := 2.4    # Endvergroesserung der alten Ebene (Fahrt in die Kamera)
 const IN_ZOOM := 0.5     # Startgroesse der neuen Ebene (aus der Tiefe)
+
+# Laufzeit-Dauer der Transition (Sekunden); per RuntimeUI-Zahlenfeld einstellbar.
+var transition_time := TRANSITION_TIME
 
 # Vollflaechiger Zoom/Fade-Shader fuer beide Ebenen. Bei zoom=1, fade=1 exakt das
 # unveraenderte Viewport-Bild (kein Pop am Anfang/Ende).
@@ -135,11 +138,12 @@ func transition() -> void:
 	move_child(in_rect, 1)
 	move_child(out_rect, get_child_count() - 1)
 
+	var dur := maxf(0.05, transition_time)
 	var tw := create_tween().set_parallel(true).set_trans(Tween.TRANS_LINEAR)
-	tw.tween_property(out_mat, "shader_parameter/zoom", OUT_ZOOM, TRANSITION_TIME)
-	tw.tween_property(out_mat, "shader_parameter/fade", 0.0, TRANSITION_TIME)
-	tw.tween_property(in_mat, "shader_parameter/zoom", 1.0, TRANSITION_TIME)
-	tw.tween_property(in_mat, "shader_parameter/fade", 1.0, TRANSITION_TIME)
+	tw.tween_property(out_mat, "shader_parameter/zoom", OUT_ZOOM, dur)
+	tw.tween_property(out_mat, "shader_parameter/fade", 0.0, dur)
+	tw.tween_property(in_mat, "shader_parameter/zoom", 1.0, dur)
+	tw.tween_property(in_mat, "shader_parameter/fade", 1.0, dur)
 	tw.finished.connect(func() -> void:
 		_finish_transition(out_slot, in_slot, nxt_idx))
 
