@@ -14,7 +14,7 @@ extends CanvasLayer
 ## - TRANSITION wechselt zur naechsten Szene (Reihenfolge: SCENES).
 
 const PANEL_WIDTH := 300.0      # feste Gesamtbreite (unabhaengig von Szene/Labels)
-const PANEL_HEIGHT := 660.0     # feste Gesamthoehe (unabhaengig vom Inhalt)
+const PANEL_HEIGHT := 780.0     # feste Gesamthoehe (unabhaengig vom Inhalt)
 const LABEL_WIDTH := 116.0
 const VALUE_WIDTH := 50.0
 const COL_MUTED := Color(0.62, 0.66, 0.72)
@@ -40,6 +40,15 @@ func _ready() -> void:
 	_build_chrome()
 	# An die Hintergrund-Buehne andocken: sie meldet den aktiven Hintergrund.
 	_connect_stage.call_deferred()
+	# Bei Fensterwechsel (PREVIEW/SPAN/WINDOW) das Panel sichtbar halten.
+	get_window().size_changed.connect(_on_window_resized)
+
+
+func _on_window_resized() -> void:
+	if _panel == null:
+		return
+	var vp := get_viewport().get_visible_rect().size
+	_panel.position = _panel.position.clamp(Vector2.ZERO, (vp - _panel.size).max(Vector2.ZERO))
 
 
 # --------------------------------------------------------------- Panel-Geruest
@@ -75,6 +84,9 @@ func _build_chrome() -> void:
 	# Lange Szenennamen duerfen die Panelbreite nicht aufblaehen.
 	_title.clip_text = true
 	outer.add_child(_title)
+
+	# --- STAGE: virtuelle Display-Konfiguration (global, bleibt ueber Szenen) ---
+	_build_stage_config(outer)
 
 	# --- Scrollbarer Reglerbereich (Inhalt wird pro Szene neu befuellt) ---
 	var scroll := ScrollContainer.new()
@@ -521,6 +533,110 @@ func _on_transition() -> void:
 	var stage := get_node_or_null("/root/BackgroundStage")
 	if stage != null:
 		stage.call("transition")
+
+
+# ------------------------------------------------------- STAGE / Display-Konfig
+
+## Globaler Bereich zum freien Einrichten der virtuellen Bildschirmkonfiguration.
+## Steuert das DisplaySetup-Autoload (Raster, Vorschau, Span). Bleibt ueber alle
+## Szenen bestehen (liegt im 'outer'-Container, nicht im pro-Szene gefuellten _rows).
+func _build_stage_config(parent: Node) -> void:
+	var ds := get_node_or_null("/root/DisplaySetup")
+	if ds == null:
+		return
+
+	_add_section(parent, "STAGE")
+
+	# Raster: Spalten x Zeilen
+	var grid_row := HBoxContainer.new()
+	grid_row.add_theme_constant_override("separation", 6)
+	grid_row.add_child(_cfg_label("cols"))
+	var cols_spin := _cfg_spin(1, 32, 1, ds.get("cols"))
+	grid_row.add_child(cols_spin)
+	grid_row.add_child(_cfg_label("rows"))
+	var rows_spin := _cfg_spin(1, 32, 1, ds.get("rows"))
+	grid_row.add_child(rows_spin)
+	parent.add_child(grid_row)
+
+	# Pixel je Einzelschirm
+	var px_row := HBoxContainer.new()
+	px_row.add_theme_constant_override("separation", 6)
+	px_row.add_child(_cfg_label("scr w"))
+	var w_spin := _cfg_spin(320, 16384, 1, ds.get("screen_w"))
+	px_row.add_child(w_spin)
+	px_row.add_child(_cfg_label("h"))
+	var h_spin := _cfg_spin(240, 16384, 1, ds.get("screen_h"))
+	px_row.add_child(h_spin)
+	parent.add_child(px_row)
+
+	# Info: Raster, Seitenverhaeltnis, Gesamtaufloesung
+	var info := Label.new()
+	info.add_theme_font_size_override("font_size", 10)
+	info.add_theme_color_override("font_color", COL_MUTED)
+	info.clip_text = true
+	parent.add_child(info)
+
+	var apply := func() -> void:
+		ds.call("configure", int(cols_spin.value), int(rows_spin.value),
+			int(w_spin.value), int(h_spin.value))
+		var total: Vector2i = ds.call("total_resolution")
+		var asp: float = ds.call("grid_aspect")
+		info.text = "%dx%d  ·  %.2f:1  ·  %dx%d" % [
+			int(cols_spin.value), int(rows_spin.value), asp, total.x, total.y]
+		info.tooltip_text = info.text
+	apply.call()
+	for sp in [cols_spin, rows_spin, w_spin, h_spin]:
+		sp.value_changed.connect(func(_v: float) -> void: apply.call())
+
+	# Modus-Knoepfe: Vorschau / Span / Fenster
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 4)
+	var prev_btn := _cfg_button("PREVIEW")
+	var span_btn := _cfg_button("SPAN")
+	var win_btn := _cfg_button("WINDOW")
+	btn_row.add_child(prev_btn)
+	btn_row.add_child(span_btn)
+	btn_row.add_child(win_btn)
+	parent.add_child(btn_row)
+	prev_btn.pressed.connect(func() -> void: ds.call("preview_grid"))
+	span_btn.pressed.connect(func() -> void: ds.call("span_screens"))
+	win_btn.pressed.connect(func() -> void: ds.call("restore_window"))
+
+
+func _cfg_label(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_size_override("font_size", 11)
+	l.add_theme_color_override("font_color", COL_MUTED)
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	return l
+
+
+func _cfg_spin(mn: float, mx: float, st: float, val: Variant) -> SpinBox:
+	var s := SpinBox.new()
+	s.min_value = mn
+	s.max_value = mx
+	s.step = st
+	s.value = float(val) if (val is float or val is int) else mn
+	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	s.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	s.custom_minimum_size = Vector2(56, 0)
+	return s
+
+
+func _cfg_button(text: String) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.flat = true
+	b.add_theme_font_size_override("font_size", 11)
+	b.add_theme_color_override("font_color", Color.WHITE)
+	b.add_theme_stylebox_override("normal", _button_style(0.0))
+	b.add_theme_stylebox_override("hover", _button_style(0.12))
+	b.add_theme_stylebox_override("pressed", _button_style(0.22))
+	b.add_theme_stylebox_override("focus", _button_style(0.0))
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.custom_minimum_size = Vector2(0, 26)
+	return b
 
 
 # ------------------------------------------------------------------ Styling
