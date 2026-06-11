@@ -24,8 +24,8 @@ uniform float glow_boost : hint_range(0.0, 4.0)   = 1.5;    // uGlow, Kamm-Ueber
 uniform vec3  col_valley : source_color = vec3(0.05, 0.10, 0.22);  // uC1 fern/Tal
 uniform vec3  col_mid    : source_color = vec3(0.15, 0.45, 0.75);  // uC2
 uniform vec3  col_crest  : source_color = vec3(0.65, 0.90, 1.00);  // uC3 Kamm
-uniform float z_near     = 4.0;     // uZNear  Tiefen-Fade Start
-uniform float z_far      = 90.0;    // uZFar   Tiefen-Fade Ende
+uniform float z_near     : hint_range(0.0, 30.0)  = 4.0;     // uZNear  Tiefen-Fade Start
+uniform float z_far      : hint_range(10.0, 200.0)= 90.0;    // uZFar   Tiefen-Fade Ende
 group_uniforms;
 
 varying float v_h;       // normierte Hoehe 0..1
