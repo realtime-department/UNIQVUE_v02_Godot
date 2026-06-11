@@ -598,9 +598,14 @@ func _build_stage_config(parent: Node) -> void:
 	btn_row.add_child(span_btn)
 	btn_row.add_child(win_btn)
 	parent.add_child(btn_row)
-	prev_btn.pressed.connect(func() -> void: ds.call("preview_grid"))
+	prev_btn.pressed.connect(func() -> void: ds.call("open_preview"))
 	span_btn.pressed.connect(func() -> void: ds.call("span_screens"))
 	win_btn.pressed.connect(func() -> void: ds.call("restore_window"))
+
+	# Vorschaufenster schliessen, ohne das Hauptfenster zu veraendern.
+	var close_btn := _cfg_button("CLOSE PREVIEW WINDOWS")
+	parent.add_child(close_btn)
+	close_btn.pressed.connect(func() -> void: ds.call("close_preview"))
 
 
 func _cfg_label(text: String) -> Label:
