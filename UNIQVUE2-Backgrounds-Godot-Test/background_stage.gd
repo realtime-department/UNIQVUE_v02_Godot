@@ -7,11 +7,19 @@ extends CanvasLayer
 ## Zoom-Shader -> nahtlos, keine schwarzen Raender (die Tiefe entsteht im UV-Zoom,
 ## nicht durch Skalieren des Rechtecks).
 ##
-## TRANSITION (beide Hintergruende laufen live, linear ueber TRANSITION_TIME):
-##   - alte Ebene : zoom 1.0 -> OUT_ZOOM  (faehrt in die Kamera / vergroessert)  + fade 1 -> 0
-##   - neue Ebene : zoom IN_ZOOM -> 1.0   (taucht aus der Tiefe auf)             + fade 0 -> 1
-## Die alte Ebene deckt waehrend des Vergroesserns stets den ganzen Schirm; die
-## neue waechst dahinter auf -> uebergangslos.
+## TRANSITION (beide Hintergruende laufen live, symmetrisch ueber TRANSITION_TIME):
+##   - alte Ebene : zoom 1.0 -> ZOOM_SPAN (faehrt in die Kamera, ease-in)  + fade 1 -> 0
+##   - neue Ebene : zoom ZOOM_SPAN -> 1.0 (setzt sich aus dem Zoom, ease-out) + fade 0 -> 1
+## Beide Zoom-Pfade sind exakte Zeit-Spiegel (ease-in <-> ease-out): bei t=0.5 sind
+## ALTE und NEUE auf demselben Zoom -> "gleiche z-Position bei 50 %".
+## Beide Ebenen bleiben stets zoom >= 1 -> decken immer den ganzen Schirm.
+##
+## COMPOSITING: ADDITIV mit komplementaeren Gewichten (fade_out + fade_in == 1).
+## result = alt*(1-t) + neu*t  -> echte Linear-Mischung, Luminanz bleibt erhalten:
+## KEIN Helligkeits-Einbruch / kein durchscheinendes Schwarz in der Mitte (anders als
+## bei 'over', wo zwei 50%-Ebenen nur 75 % Deckung ergeben). Bei t=0.5 ist jede Ebene
+## echt auf 50 % Alpha. Die Fades nutzen sine ease-in-out -> der Cross-Punkt liegt
+## exakt bei 50 %, wird aber zuegig durchschritten (kein traeges Auf-/Ueberblenden).
 ##
 ## active_changed(root) feuert nach jedem Wechsel -> die UI befuellt sich daraus neu.
 
@@ -22,22 +30,27 @@ const SCENES := [
 	"res://particle_wave.tscn",
 ]
 const TRANSITION_TIME := 1.2   # Default; zur Laufzeit ueber transition_time anpassbar.
-const OUT_ZOOM := 2.4    # Endvergroesserung der alten Ebene (Fahrt in die Kamera)
-const IN_ZOOM := 0.5     # Startgroesse der neuen Ebene (aus der Tiefe)
+const ZOOM_SPAN := 2.0   # Symmetrischer Zoom-Hub: alt 1->ZOOM_SPAN, neu ZOOM_SPAN->1.
+                         # Beide bleiben >= 1 -> stets volle Deckung (nie schwarze Raender).
 
 # Laufzeit-Dauer der Transition (Sekunden); per RuntimeUI-Zahlenfeld einstellbar.
 var transition_time := TRANSITION_TIME
 
 # Vollflaechiger Zoom/Fade-Shader fuer beide Ebenen. Bei zoom=1, fade=1 exakt das
 # unveraenderte Viewport-Bild (kein Pop am Anfang/Ende).
+# ADDITIV (blend_add): der Beitrag jeder Ebene ist rgb * (fade*inside). Da sich die
+# beiden Fades waehrend der Transition zu 1 ergaenzen, addieren sich die Ebenen zur
+# exakten Linear-Mischung -> keine 'over'-Deckungsluecke, also nie durchscheinendes
+# Schwarz in der Mitte. Im Ruhezustand (eine Ebene, fade=1) = unveraendertes Bild.
 const LAYER_SHADER := "shader_type canvas_item;
+render_mode blend_add;
 uniform float zoom = 1.0;
 uniform float fade = 1.0;
 void fragment() {
 	vec2 uv = (UV - vec2(0.5)) / zoom + vec2(0.5);
 	vec2 cl = clamp(uv, vec2(0.0), vec2(1.0));
-	// Ausserhalb [0..1] (bei zoom < 1) NICHT den Rand klemmen, sondern transparent
-	// machen -> keine dunklen Schlieren/Raender, der schwarze Fond zeigt durch.
+	// Sicherheitsnetz: ausserhalb [0..1] (nur falls zoom < 1) transparent statt geklemmt.
+	// Im aktuellen Ablauf bleibt zoom stets >= 1, daher ist inside praktisch immer 1.
 	float inside = step(uv.x, 1.0) * step(0.0, uv.x) * step(uv.y, 1.0) * step(0.0, uv.y);
 	vec4 c = texture(TEXTURE, cl);
 	COLOR = vec4(c.rgb, c.a * fade * inside);
@@ -138,38 +151,40 @@ func transition_to(target_idx: int) -> void:
 	var in_mat := _mats[in_slot]
 	var out_mat := _mats[out_slot]
 
-	# Startzustand: neue Ebene klein/transparent (in der Tiefe), alte voll/opak.
+	# Startzustand: neue Ebene voll herangezoomt/transparent, alte normal/opak.
+	# (Zeichenreihenfolge egal: additives Blending ist kommutativ.)
 	_vps[in_slot].render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	in_mat.set_shader_parameter("zoom", IN_ZOOM)
+	in_mat.set_shader_parameter("zoom", ZOOM_SPAN)
 	in_mat.set_shader_parameter("fade", 0.0)
 	in_rect.visible = true
 	out_mat.set_shader_parameter("zoom", 1.0)
 	out_mat.set_shader_parameter("fade", 1.0)
 	out_rect.visible = true
-	# Zeichenreihenfolge: neue Ebene HINTER die alte (alte oben, deckt voll).
-	move_child(in_rect, 1)
-	move_child(out_rect, get_child_count() - 1)
 
 	# (#3) Aufwaermframe: die frisch instanziierte Szene einmal rendern lassen,
 	# bevor eingeblendet wird -> kein Leer-/Weissblitz im ersten sichtbaren Frame.
 	await get_tree().process_frame
 
 	var dur := maxf(0.05, transition_time)
-	# (#1) Easing der Bewegung (Zoom): die alte Ebene beschleunigt in die Kamera
-	# (ease-in), die neue taucht zuegig auf und setzt sich weich (ease-out). Die
-	# Fades bleiben linear -> sauberer, gleichmaessiger Cross-Dissolve.
+	# (#1) Zoom (z-Position) symmetrisch: die alte Ebene beschleunigt in die Kamera
+	# (ease-in 1->ZOOM_SPAN), die neue setzt sich gespiegelt aus dem Zoom (ease-out
+	# ZOOM_SPAN->1). ease-in und ease-out sind exakte Zeit-Spiegel -> bei t=0.5 liegen
+	# beide auf demselben Zoom ("gleiche z-Position bei 50 %").
+	# Fades: sine ease-in-out, beide kreuzen exakt bei t=0.5 / 50 %, durchschreiten den
+	# Ueberblend-Bereich aber zuegig -> kein traeger Dissolve-Eindruck. Additives Blending
+	# (s. Shader) haelt die Luminanz konstant -> nie ein Schwarz-Einbruch in der Mitte.
 	var tw := create_tween().set_parallel(true)
-	tw.tween_property(out_mat, "shader_parameter/zoom", OUT_ZOOM, dur) \
+	tw.tween_property(out_mat, "shader_parameter/zoom", ZOOM_SPAN, dur) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 	tw.tween_property(out_mat, "shader_parameter/fade", 0.0, dur) \
-		.set_trans(Tween.TRANS_LINEAR)
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	tw.tween_property(in_mat, "shader_parameter/zoom", 1.0, dur) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	tw.tween_property(in_mat, "shader_parameter/fade", 1.0, dur) \
-		.set_trans(Tween.TRANS_LINEAR)
-	# (#4) Sobald die alte Ebene praktisch unsichtbar ist (~90 % der Zeit, Fade
-	# linear -> ca. 10 % Restdeckung), ihr Viewport schlafen legen -> spart GPU,
-	# statt bis zum Schluss eine fast unsichtbare Ebene doppelt zu rendern.
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	# (#4) Sobald die alte Ebene praktisch unsichtbar ist (~90 % der Zeit; bei sine
+	# ease-in-out ist fade_out dort schon ~2-3 %), ihr Viewport schlafen legen -> spart
+	# GPU, statt bis zum Schluss eine fast unsichtbare Ebene doppelt zu rendern.
 	tw.tween_callback(func() -> void:
 		_vps[out_slot].render_target_update_mode = SubViewport.UPDATE_DISABLED) \
 		.set_delay(dur * 0.9)
