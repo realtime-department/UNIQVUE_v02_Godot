@@ -19,12 +19,6 @@ const LABEL_WIDTH := 116.0
 const VALUE_WIDTH := 50.0
 const COL_MUTED := Color(0.62, 0.66, 0.72)
 
-# Szenen-Reihenfolge fuer den TRANSITION-Wechsel (zyklisch).
-const SCENES := [
-	"res://tunnel_wave.tscn",
-	"res://particle_wave.tscn",
-]
-
 # Feste Environment-Post-Parameter: [property, min, max, step]
 const POST_PARAMS := [
 	["glow_intensity", 0.0, 3.0, 0.01],
@@ -39,15 +33,13 @@ var _panel: PanelContainer
 var _title: Label
 var _rows: VBoxContainer
 var _dragging := false
-var _last_scene: Node = null
 
 
 func _ready() -> void:
 	layer = 100  # immer ueber der 3D-Szene
 	_build_chrome()
-	# Auf Szenenwechsel reagieren (auch der erste Szenenaufbau beim Start).
-	get_tree().tree_changed.connect(_on_tree_changed)
-	_check_scene.call_deferred()
+	# An die Hintergrund-Buehne andocken: sie meldet den aktiven Hintergrund.
+	_connect_stage.call_deferred()
 
 
 # --------------------------------------------------------------- Panel-Geruest
@@ -109,22 +101,22 @@ func _build_chrome() -> void:
 	outer.add_child(btn)
 
 
-# Reagiert auf jeden Baumwechsel, baut aber nur neu, wenn sich die aktive Szene
-# tatsaechlich aendert (verhindert Endlosschleifen beim eigenen add_child).
-func _on_tree_changed() -> void:
-	_check_scene()
+# An die Hintergrund-Buehne andocken und initial befuellen. Deferred, damit alle
+# Autoloads existieren und der erste Hintergrund schon geladen ist.
+func _connect_stage() -> void:
+	var stage := get_node_or_null("/root/BackgroundStage")
+	if stage == null:
+		return
+	if not stage.is_connected("active_changed", _on_active_changed):
+		stage.connect("active_changed", _on_active_changed)
+	var root: Variant = stage.call("active_root")
+	if root is Node:
+		_on_active_changed(root)
 
 
-func _check_scene() -> void:
-	if not is_inside_tree():
-		return
-	var cur := get_tree().current_scene
-	if cur == _last_scene:
-		return
-	if cur == null or not cur.is_inside_tree():
-		return
-	_last_scene = cur
-	_populate(cur)
+func _on_active_changed(root: Node) -> void:
+	if root != null and root.is_inside_tree():
+		_populate(root)
 
 
 # --------------------------------------------------------------- Befuellung
@@ -483,12 +475,9 @@ func _input(event: InputEvent) -> void:
 
 
 func _on_transition() -> void:
-	var cur := ""
-	if get_tree().current_scene != null:
-		cur = get_tree().current_scene.scene_file_path
-	var idx := SCENES.find(cur)
-	var nxt: String = SCENES[(idx + 1) % SCENES.size()] if idx >= 0 else SCENES[0]
-	get_tree().change_scene_to_file(nxt)
+	var stage := get_node_or_null("/root/BackgroundStage")
+	if stage != null:
+		stage.call("transition")
 
 
 # ------------------------------------------------------------------ Styling
