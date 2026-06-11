@@ -1,8 +1,12 @@
 extends CanvasLayer
-## Generisches Laufzeit-Bedienpanel fuer die UNIQVUE2-Hintergruende.
-## Liest ALLE regelbaren Parameter automatisch aus der Szene aus, daher muss
-## das Panel pro Szene NICHT angepasst werden:
-##   1) @export-Variablen des Wurzel-Skripts (z.B. tunnel_sim.gd) inkl. Gruppen,
+## EIN globales Laufzeit-Bedienpanel als Autoload (Singleton). Es lebt AUSSERHALB
+## der einzelnen Szenen und bleibt beim Szenenwechsel bestehen, daher:
+##   - keine UI-Logik/-Knoten in den einzelnen .tscn,
+##   - Panel-Position und Sichtbarkeit bleiben beim TRANSITION-Wechsel erhalten.
+##
+## Beim (Neu-)Laden einer Szene werden nur die Regler neu aufgebaut, automatisch
+## ausgelesen aus:
+##   1) @export-Variablen des Szenen-Wurzelskripts (z.B. tunnel_sim.gd) inkl. Gruppen,
 ##   2) Shader-Uniforms aller ShaderMaterials (Name/Typ/hint_range/source_color),
 ##   3) feste POST-Parameter des WorldEnvironment (Glow/Kontrast/Saettigung).
 ##
@@ -31,15 +35,23 @@ const POST_PARAMS := [
 ]
 
 var _panel: PanelContainer
+var _title: Label
+var _rows: VBoxContainer
 var _dragging := false
+var _last_scene: Node = null
 
 
 func _ready() -> void:
-	_build_ui()
+	layer = 100  # immer ueber der 3D-Szene
+	_build_chrome()
+	# Auf Szenenwechsel reagieren (auch der erste Szenenaufbau beim Start).
+	get_tree().tree_changed.connect(_on_tree_changed)
+	_check_scene.call_deferred()
 
 
-func _build_ui() -> void:
-	var root := get_parent()
+# --------------------------------------------------------------- Panel-Geruest
+
+func _build_chrome() -> void:
 	_panel = PanelContainer.new()
 	_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	_panel.custom_minimum_size = Vector2(PANEL_WIDTH, 0)
@@ -53,45 +65,28 @@ func _build_ui() -> void:
 	_panel.add_child(outer)
 
 	# --- Titelleiste (Drag-Griff) ---
-	var title := Label.new()
-	title.text = "  %s   ·   drag · Tab" % str(root.name).to_upper()
-	title.add_theme_font_size_override("font_size", 11)
-	title.add_theme_color_override("font_color", COL_MUTED)
-	title.mouse_filter = Control.MOUSE_FILTER_STOP
-	title.gui_input.connect(_on_title_input)
-	title.custom_minimum_size = Vector2(0, 22)
-	outer.add_child(title)
+	_title = Label.new()
+	_title.text = "  UNIQVUE2   ·   drag · Tab"
+	_title.add_theme_font_size_override("font_size", 11)
+	_title.add_theme_color_override("font_color", COL_MUTED)
+	_title.mouse_filter = Control.MOUSE_FILTER_STOP
+	_title.gui_input.connect(_on_title_input)
+	_title.custom_minimum_size = Vector2(0, 22)
+	outer.add_child(_title)
 
-	# --- Scrollbarer Reglerbereich ---
+	# --- Scrollbarer Reglerbereich (Inhalt wird pro Szene neu befuellt) ---
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.custom_minimum_size = Vector2(0, 560)
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	outer.add_child(scroll)
 
-	var rows := VBoxContainer.new()
-	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rows.add_theme_constant_override("separation", 3)
-	scroll.add_child(rows)
+	_rows = VBoxContainer.new()
+	_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_rows.add_theme_constant_override("separation", 3)
+	scroll.add_child(_rows)
 
-	# 1) @export-Variablen des Wurzel-Skripts (CPU-Parameter, z.B. Tunnel).
-	if root.get_script() != null:
-		_add_object_props(rows, root)
-
-	# 2) Shader-Uniforms aller ShaderMaterials in der Szene.
-	for entry in _find_shader_materials(root):
-		var node_name: String = str(entry[0])
-		var mat: ShaderMaterial = entry[1]
-		_add_shader_uniforms(rows, node_name, mat)
-
-	# 3) Feste POST-Parameter.
-	var env := _find_environment(root)
-	if env != null:
-		_add_section(rows, "POST")
-		for p in POST_PARAMS:
-			_add_env_slider(rows, env, p[0], p[1], p[2], p[3])
-
-	# --- TRANSITION (Szenenwechsel) ---
+	# --- TRANSITION (Szenenwechsel), bleibt ueber alle Szenen bestehen ---
 	var btn := Button.new()
 	btn.text = "TRANSITION"
 	btn.flat = true
@@ -104,6 +99,51 @@ func _build_ui() -> void:
 	btn.custom_minimum_size = Vector2(0, 30)
 	btn.pressed.connect(_on_transition)
 	outer.add_child(btn)
+
+
+# Reagiert auf jeden Baumwechsel, baut aber nur neu, wenn sich die aktive Szene
+# tatsaechlich aendert (verhindert Endlosschleifen beim eigenen add_child).
+func _on_tree_changed() -> void:
+	_check_scene()
+
+
+func _check_scene() -> void:
+	if not is_inside_tree():
+		return
+	var cur := get_tree().current_scene
+	if cur == _last_scene:
+		return
+	if cur == null or not cur.is_inside_tree():
+		return
+	_last_scene = cur
+	_populate(cur)
+
+
+# --------------------------------------------------------------- Befuellung
+
+func _populate(root: Node) -> void:
+	_title.text = "  %s   ·   drag · Tab" % str(root.name).to_upper()
+	while _rows.get_child_count() > 0:
+		var c := _rows.get_child(0)
+		_rows.remove_child(c)
+		c.queue_free()
+
+	# 1) @export-Variablen des Wurzel-Skripts (CPU-Parameter, z.B. Tunnel).
+	if root.get_script() != null:
+		_add_object_props(_rows, root)
+
+	# 2) Shader-Uniforms aller ShaderMaterials in der Szene.
+	for entry in _find_shader_materials(root):
+		var node_name: String = str(entry[0])
+		var mat: ShaderMaterial = entry[1]
+		_add_shader_uniforms(_rows, node_name, mat)
+
+	# 3) Feste POST-Parameter.
+	var env := _find_environment(root)
+	if env != null:
+		_add_section(_rows, "POST")
+		for p in POST_PARAMS:
+			_add_env_slider(_rows, env, p[0], p[1], p[2], p[3])
 
 
 # --------------------------------------------------------------- Auto-Discovery
@@ -428,7 +468,9 @@ func _input(event: InputEvent) -> void:
 
 
 func _on_transition() -> void:
-	var cur := get_tree().current_scene.scene_file_path
+	var cur := ""
+	if get_tree().current_scene != null:
+		cur = get_tree().current_scene.scene_file_path
 	var idx := SCENES.find(cur)
 	var nxt: String = SCENES[(idx + 1) % SCENES.size()] if idx >= 0 else SCENES[0]
 	get_tree().change_scene_to_file(nxt)
