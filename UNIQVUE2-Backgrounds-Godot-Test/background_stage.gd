@@ -35,8 +35,12 @@ uniform float zoom = 1.0;
 uniform float fade = 1.0;
 void fragment() {
 	vec2 uv = (UV - vec2(0.5)) / zoom + vec2(0.5);
-	vec4 c = texture(TEXTURE, uv);
-	COLOR = vec4(c.rgb, c.a * fade);
+	vec2 cl = clamp(uv, vec2(0.0), vec2(1.0));
+	// Ausserhalb [0..1] (bei zoom < 1) NICHT den Rand klemmen, sondern transparent
+	// machen -> keine dunklen Schlieren/Raender, der schwarze Fond zeigt durch.
+	float inside = step(uv.x, 1.0) * step(0.0, uv.x) * step(uv.y, 1.0) * step(0.0, uv.y);
+	vec4 c = texture(TEXTURE, cl);
+	COLOR = vec4(c.rgb, c.a * fade * inside);
 }"
 
 var _vps: Array[SubViewport] = []
@@ -112,11 +116,19 @@ func active_root() -> Node:
 	return _roots[_active]
 
 
+# Naechste Szene in SCENES-Reihenfolge.
 func transition() -> void:
+	transition_to((_scene_idx + 1) % SCENES.size())
+
+
+# Gezielt zu SCENES[target_idx] wechseln (z.B. fuer einen Szenen-Wahlschalter im UI).
+func transition_to(target_idx: int) -> void:
 	if _busy or SCENES.size() < 2:
 		return
+	if target_idx < 0 or target_idx >= SCENES.size() or target_idx == _scene_idx:
+		return
 	_busy = true
-	var nxt_idx := (_scene_idx + 1) % SCENES.size()
+	var nxt_idx := target_idx
 	var out_slot := _active
 	var in_slot := 1 - _active
 	_load_into(in_slot, SCENES[nxt_idx])
@@ -138,12 +150,29 @@ func transition() -> void:
 	move_child(in_rect, 1)
 	move_child(out_rect, get_child_count() - 1)
 
+	# (#3) Aufwaermframe: die frisch instanziierte Szene einmal rendern lassen,
+	# bevor eingeblendet wird -> kein Leer-/Weissblitz im ersten sichtbaren Frame.
+	await get_tree().process_frame
+
 	var dur := maxf(0.05, transition_time)
-	var tw := create_tween().set_parallel(true).set_trans(Tween.TRANS_LINEAR)
-	tw.tween_property(out_mat, "shader_parameter/zoom", OUT_ZOOM, dur)
-	tw.tween_property(out_mat, "shader_parameter/fade", 0.0, dur)
-	tw.tween_property(in_mat, "shader_parameter/zoom", 1.0, dur)
-	tw.tween_property(in_mat, "shader_parameter/fade", 1.0, dur)
+	# (#1) Easing der Bewegung (Zoom): die alte Ebene beschleunigt in die Kamera
+	# (ease-in), die neue taucht zuegig auf und setzt sich weich (ease-out). Die
+	# Fades bleiben linear -> sauberer, gleichmaessiger Cross-Dissolve.
+	var tw := create_tween().set_parallel(true)
+	tw.tween_property(out_mat, "shader_parameter/zoom", OUT_ZOOM, dur) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	tw.tween_property(out_mat, "shader_parameter/fade", 0.0, dur) \
+		.set_trans(Tween.TRANS_LINEAR)
+	tw.tween_property(in_mat, "shader_parameter/zoom", 1.0, dur) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tw.tween_property(in_mat, "shader_parameter/fade", 1.0, dur) \
+		.set_trans(Tween.TRANS_LINEAR)
+	# (#4) Sobald die alte Ebene praktisch unsichtbar ist (~90 % der Zeit, Fade
+	# linear -> ca. 10 % Restdeckung), ihr Viewport schlafen legen -> spart GPU,
+	# statt bis zum Schluss eine fast unsichtbare Ebene doppelt zu rendern.
+	tw.tween_callback(func() -> void:
+		_vps[out_slot].render_target_update_mode = SubViewport.UPDATE_DISABLED) \
+		.set_delay(dur * 0.9)
 	tw.finished.connect(func() -> void:
 		_finish_transition(out_slot, in_slot, nxt_idx))
 
