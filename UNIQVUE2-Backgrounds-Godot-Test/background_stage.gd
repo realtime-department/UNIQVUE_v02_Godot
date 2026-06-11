@@ -51,6 +51,7 @@ var _bg: ColorRect
 var _active := 0          # aktiver Slot (0/1)
 var _scene_idx := 0       # Index in SCENES, der gerade aktiv ist
 var _busy := false
+var _forced_size := Vector2i.ZERO   # != 0 -> SubViewports rendern in dieser (Wand-)Groesse
 
 
 func _ready() -> void:
@@ -105,15 +106,36 @@ func _ready() -> void:
 
 
 func _on_window_resized() -> void:
-	var s := get_window().size
-	for vp in _vps:
-		vp.size = s
+	_apply_vp_size()
 
 
 # --------------------------------------------------------------- Oeffentliche API
 
 func active_root() -> Node:
 	return _roots[_active]
+
+
+# Textur der aktuell aktiven Hintergrund-Ebene (fuer die Multi-Window-Vorschau).
+func active_texture() -> Texture2D:
+	return _vps[_active].get_texture()
+
+
+# SubViewports unabhaengig von der Fenstergroesse in einer festen (Wand-)Aufloesung
+# rendern lassen -> das Bild entspricht dann dem Gesamt-Seitenverhaeltnis der Wand.
+func set_render_size_override(s: Vector2i) -> void:
+	_forced_size = s
+	_apply_vp_size()
+
+
+func clear_render_size_override() -> void:
+	_forced_size = Vector2i.ZERO
+	_apply_vp_size()
+
+
+func _apply_vp_size() -> void:
+	var s: Vector2i = _forced_size if _forced_size != Vector2i.ZERO else get_window().size
+	for vp in _vps:
+		vp.size = s
 
 
 # Naechste Szene in SCENES-Reihenfolge.
