@@ -18,6 +18,7 @@ config/icon="res://icon.svg"
 
 [autoload]
 
+DisplaySetup="*res://display_setup.gd"
 BackgroundStage="*res://background_stage.gd"
 RuntimeUI="*res://runtime_ui.gd"
 
