@@ -12,12 +12,13 @@ config_version=5
 
 config/name="UNIQVUE2-Backgrounds-Godot-Test"
 config/description="Broadcast Background Visuals - Godot 4.6.1 Forward+"
-run/main_scene="res://tunnel_wave.tscn"
+run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
 
 [autoload]
 
+BackgroundStage="*res://background_stage.gd"
 RuntimeUI="*res://runtime_ui.gd"
 
 [display]
