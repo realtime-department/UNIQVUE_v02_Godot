@@ -13,7 +13,8 @@ extends CanvasLayer
 ## - Tab blendet das Panel ein/aus, Titelleiste zieht das Panel frei.
 ## - TRANSITION wechselt zur naechsten Szene (Reihenfolge: SCENES).
 
-const PANEL_WIDTH := 300.0
+const PANEL_WIDTH := 300.0      # feste Gesamtbreite (unabhaengig von Szene/Labels)
+const BODY_HEIGHT := 560.0      # feste Hoehe des scrollbaren Reglerbereichs
 const LABEL_WIDTH := 116.0
 const VALUE_WIDTH := 50.0
 const COL_MUTED := Color(0.62, 0.66, 0.72)
@@ -54,7 +55,11 @@ func _ready() -> void:
 func _build_chrome() -> void:
 	_panel = PanelContainer.new()
 	_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	# Feste Breite. Hoehe ergibt sich aus dem fixierten BODY_HEIGHT (s.u.),
+	# daher fuer alle Szenen identische Gesamtgroesse.
 	_panel.custom_minimum_size = Vector2(PANEL_WIDTH, 0)
+	_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	var vp := get_viewport().get_visible_rect().size
 	_panel.position = Vector2(vp.x - PANEL_WIDTH - 16.0, 16.0)
 	_panel.add_theme_stylebox_override("panel", _panel_style())
@@ -72,13 +77,16 @@ func _build_chrome() -> void:
 	_title.mouse_filter = Control.MOUSE_FILTER_STOP
 	_title.gui_input.connect(_on_title_input)
 	_title.custom_minimum_size = Vector2(0, 22)
+	# Lange Szenennamen duerfen die Panelbreite nicht aufblaehen.
+	_title.clip_text = true
 	outer.add_child(_title)
 
 	# --- Scrollbarer Reglerbereich (Inhalt wird pro Szene neu befuellt) ---
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.custom_minimum_size = Vector2(0, 560)
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# Feste Hoehe: kuerzere Reglerlisten dehnen das Panel nicht, laengere scrollen.
+	scroll.custom_minimum_size = Vector2(0, BODY_HEIGHT)
+	scroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	outer.add_child(scroll)
 
 	_rows = VBoxContainer.new()
@@ -312,6 +320,8 @@ func _add_section(parent: Node, title: String) -> void:
 	l.add_theme_color_override("font_color", COL_MUTED)
 	l.custom_minimum_size = Vector2(0, 18)
 	l.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	l.clip_text = true
+	l.tooltip_text = title
 	parent.add_child(l)
 
 
@@ -324,6 +334,11 @@ func _make_row(parent: Node, name: String) -> HBoxContainer:
 	name_lbl.text = name
 	name_lbl.add_theme_font_size_override("font_size", 11)
 	name_lbl.custom_minimum_size = Vector2(LABEL_WIDTH, 0)
+	# Feste Spaltenbreite: lange Namen abschneiden (Vollname im Tooltip),
+	# damit kein Label die Panelbreite ueber PANEL_WIDTH hinaus aufweitet.
+	name_lbl.clip_text = true
+	name_lbl.size_flags_horizontal = Control.SIZE_FILL
+	name_lbl.tooltip_text = name
 	row.add_child(name_lbl)
 	return row
 
