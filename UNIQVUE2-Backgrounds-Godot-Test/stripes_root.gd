@@ -1,0 +1,47 @@
+extends Node3D
+## Stripes scene root — ported from studio-v005 createStripesModule()
+## (studio-v005.html:877-970).
+##
+## Fullscreen-Lamellen-Shader auf einem ColorRect (CanvasLayer), additiv ueber
+## dem Gradient-Sky (WorldEnvironment) — wie im Web: gradientPass + Stripes-Quad.
+## Die @exports hier sind die Tunables (von ParamStore als scene/* erfasst) und
+## werden je Frame in das ShaderMaterial gespiegelt (entspricht update() im HTML).
+##
+## Farben kommen NICHT aus @exports: der Shader liest die globalen STYLE-Uniforms
+## fog_color/elem_a/elem_b direkt (uC1/uC2/uC3 im Web, studio-v005.html:940).
+
+@export_group("Streifen")
+@export_range(0.0, 6.283, 0.001) var angle: float = 2.007
+@export_range(0.0, 2.0, 0.02) var speed: float = 0.4
+@export_range(6.0, 80.0, 1.0) var stripe_scale: float = 26.0
+@export_range(0.0, 2.0, 0.02) var cross_drift: float = 0.4
+@export_range(0.0, 1.0, 0.02) var layer_mix: float = 0.6
+
+@export_group("Variation")
+@export_range(0.0, 1.0, 0.02) var width_var: float = 0.6
+@export_range(0.0, 1.0, 0.02) var tone_var: float = 1.0
+@export_range(0.0, 1.0, 0.02) var sharp: float = 0.4
+
+@export_group("Darstellung")
+@export_range(0.3, 2.5, 0.05) var contrast: float = 1.1
+@export_range(0.0, 1.5, 0.05) var glow: float = 0.4
+@export_range(0.0, 1.5, 0.05) var opacity: float = 0.9
+
+@onready var _rect: ColorRect = $CanvasLayer/ColorRect
+
+
+func _process(_delta: float) -> void:
+	var mat := _rect.material as ShaderMaterial
+	if mat == null:
+		return
+	mat.set_shader_parameter("angle", angle)
+	mat.set_shader_parameter("speed", speed)
+	mat.set_shader_parameter("stripe_scale", stripe_scale)
+	mat.set_shader_parameter("cross_drift", cross_drift)
+	mat.set_shader_parameter("layer_mix", layer_mix)
+	mat.set_shader_parameter("width_var", width_var)
+	mat.set_shader_parameter("tone_var", tone_var)
+	mat.set_shader_parameter("sharp", sharp)
+	mat.set_shader_parameter("contrast", contrast)
+	mat.set_shader_parameter("glow", glow)
+	mat.set_shader_parameter("opacity", opacity)

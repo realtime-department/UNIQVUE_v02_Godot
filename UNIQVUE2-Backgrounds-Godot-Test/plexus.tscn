@@ -1,0 +1,46 @@
+[gd_scene format=3 uid="uid://cgplexus00001"]
+
+[ext_resource type="Script" path="res://plexus_sim.gd" id="1_sim"]
+[ext_resource type="Shader" path="res://plexus_line.gdshader" id="2_line"]
+[ext_resource type="Shader" path="res://plexus.gdshader" id="3_points"]
+[ext_resource type="Shader" path="res://gradient_sky.gdshader" id="4_sky"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_sky"]
+shader = ExtResource("4_sky")
+
+[sub_resource type="Sky" id="Sky_grad"]
+sky_material = SubResource("ShaderMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_plexus"]
+background_mode = 2
+sky = SubResource("Sky_grad")
+ambient_light_source = 0
+reflected_light_source = 0
+tonemap_mode = 0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_line"]
+render_priority = 0
+shader = ExtResource("2_line")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_points"]
+render_priority = 0
+shader = ExtResource("3_points")
+shader_parameter/shape = 0
+
+[node name="Plexus" type="Node3D"]
+script = ExtResource("1_sim")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_plexus")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 16)
+fov = 50.0
+near = 0.1
+far = 200.0
+
+[node name="Streaks" type="MeshInstance3D" parent="."]
+material_override = SubResource("ShaderMaterial_line")
+
+[node name="Points" type="MeshInstance3D" parent="."]
+material_override = SubResource("ShaderMaterial_points")
