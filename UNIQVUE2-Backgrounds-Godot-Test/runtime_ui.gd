@@ -34,6 +34,9 @@ var _rows: VBoxContainer
 var _dragging := false
 # Auf/Zu-Status klappbarer Sektionen, je Titel; ueberlebt den Szenen-Neuaufbau.
 var _collapsed := {}
+# STYLE-Swatches (persistent im outer-Container) zum Nach-Synchronisieren nach
+# einem Preset-LOAD — sonst zeigen die Farbfelder noch die alten Werte.
+var _style_swatches: Array = []
 
 
 func _ready() -> void:
@@ -91,6 +94,9 @@ func _build_chrome() -> void:
 
 	# --- STYLE: zentrale Farbpalette (global, background-uebergreifend) ---
 	_build_style_config(outer)
+
+	# --- PRESET: benannte Presets speichern/laden (S3, global) ---
+	_build_preset_config(outer)
 
 	# --- Scrollbarer Reglerbereich (Inhalt wird pro Szene neu befuellt) ---
 	var scroll := ScrollContainer.new()
@@ -721,6 +727,121 @@ func _add_style_swatch(parent: Node, st: Node, key: String, label: String) -> vo
 	btn.color_changed.connect(func(c: Color) -> void:
 		st.call("set_color", key, c))
 	row.add_child(btn)
+	# Fuer Nach-Sync nach Preset-LOAD merken (Feld auf den geladenen Wert ziehen).
+	_style_swatches.append({"btn": btn, "key": key, "st": st})
+
+
+## Globaler PRESET-Bereich (S3): benannte Presets via BgCore speichern/laden/loeschen.
+## Dropdown listet user://presets/*; das Namensfeld bestimmt Ziel von SAVE/LOAD/DEL.
+## Liegt im persistenten outer-Container, also einmalig gebaut (kein Szenen-Neuaufbau).
+func _build_preset_config(parent: Node) -> void:
+	var core := get_node_or_null("/root/BgCore")
+	if core == null:
+		return
+
+	var body := _add_section(parent, "PRESET")
+
+	var opt := OptionButton.new()
+	opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	opt.add_theme_font_size_override("font_size", 11)
+	opt.custom_minimum_size = Vector2(0, 24)
+	body.add_child(opt)
+
+	var name_edit := LineEdit.new()
+	name_edit.placeholder_text = "preset name"
+	name_edit.add_theme_font_size_override("font_size", 11)
+	name_edit.custom_minimum_size = Vector2(0, 24)
+	body.add_child(name_edit)
+
+	var brow := HBoxContainer.new()
+	brow.add_theme_constant_override("separation", 4)
+	var save_btn := _cfg_button("SAVE")
+	var load_btn := _cfg_button("LOAD")
+	var del_btn := _cfg_button("DEL")
+	brow.add_child(save_btn)
+	brow.add_child(load_btn)
+	brow.add_child(del_btn)
+	body.add_child(brow)
+
+	var status := Label.new()
+	status.add_theme_font_size_override("font_size", 10)
+	status.add_theme_color_override("font_color", COL_MUTED)
+	status.clip_text = true
+	body.add_child(status)
+
+	# Dropdown aus den vorhandenen Presets (neu) befuellen; Auswahl auf das Namensfeld
+	# ausrichten, falls es dort einen Treffer gibt.
+	var refresh := func() -> void:
+		opt.clear()
+		for n in core.call("list_presets"):
+			opt.add_item(str(n))
+		var want := name_edit.text.strip_edges()
+		for i in range(opt.item_count):
+			if opt.get_item_text(i) == want:
+				opt.select(i)
+				break
+	refresh.call()
+
+	opt.item_selected.connect(func(idx: int) -> void:
+		name_edit.text = opt.get_item_text(idx))
+
+	save_btn.pressed.connect(func() -> void:
+		var nm := name_edit.text.strip_edges()
+		if nm == "":
+			status.text = "name?"
+			return
+		if core.call("save_current", nm):
+			status.text = "saved '%s'" % nm   # presets_changed -> refresh
+		else:
+			status.text = "save failed")
+
+	load_btn.pressed.connect(func() -> void:
+		var nm := name_edit.text.strip_edges()
+		if nm == "" and opt.selected >= 0:
+			nm = opt.get_item_text(opt.selected)
+			name_edit.text = nm
+		if nm == "":
+			status.text = "pick a preset"
+			return
+		var snap: Dictionary = core.call("load_preset", nm)
+		if snap.is_empty():
+			status.text = "not found"
+		else:
+			status.text = "loaded '%s' (%d)" % [nm, snap.size()]
+			_after_preset_loaded())
+
+	del_btn.pressed.connect(func() -> void:
+		var nm := name_edit.text.strip_edges()
+		if nm == "":
+			status.text = "name?"
+			return
+		core.call("delete_preset", nm)
+		status.text = "deleted '%s'" % nm)   # presets_changed -> refresh
+
+	# Liste auf jede Aenderung (SAVE/DEL, auch extern) hin aktualisieren.
+	if not core.is_connected("presets_changed", refresh):
+		core.connect("presets_changed", refresh)
+
+
+## Nach einem Preset-LOAD die sichtbaren Regler/Swatches an die nun geaenderten
+## Werte angleichen (apply() aendert nur die Parameter, nicht die UI-Positionen).
+func _after_preset_loaded() -> void:
+	_sync_style_swatches()
+	var stage := get_node_or_null("/root/BackgroundStage")
+	if stage != null:
+		var r: Variant = stage.call("active_root")
+		if r is Node and r.is_inside_tree():
+			_populate(r)   # baut scene/mat/post/overlay-Regler aus aktuellen Werten neu
+
+
+## STYLE-Swatches (im persistenten outer-Container) aus Style nachziehen. Signale
+## blockieren, damit das programmatische Setzen kein set_color zurueckfeuert.
+func _sync_style_swatches() -> void:
+	for sw in _style_swatches:
+		var b: ColorPickerButton = sw.btn
+		b.set_block_signals(true)
+		b.color = sw.st.call("get_color", sw.key)
+		b.set_block_signals(false)
 
 
 func _cfg_label(text: String) -> Label:
