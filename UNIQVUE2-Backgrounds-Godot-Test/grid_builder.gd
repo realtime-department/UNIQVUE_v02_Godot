@@ -51,7 +51,7 @@ func _build_points() -> void:
 			var jx := rng.randf_range(-0.5, 0.5) * col_spacing
 			var jz := rng.randf_range(-0.4, 0.4) * row_spacing
 			var fx := (float(xx) / float(grid_w - 1) - 0.5) * span_x + x_drift + jx
-			var fz := (float(zz) / float(grid_h - 1)) * span_z + jz
+			var fz := (float(zz) / float(grid_h - 1) - 0.5) * span_z + jz
 			_verts[i] = Vector3(fx, 0.0, fz)
 			i += 1
 
@@ -61,7 +61,7 @@ func _build_points() -> void:
 	var am := ArrayMesh.new()
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, arrays)
 	mesh = am
-	custom_aabb = AABB(Vector3(-span_x, -40.0, -5.0), Vector3(span_x * 2.0, 80.0, span_z + 10.0))
+	custom_aabb = AABB(Vector3(-span_x * 0.6, -40.0, -span_z * 0.6), Vector3(span_x * 1.2, 80.0, span_z * 1.2))
 
 
 func _build_wire() -> void:
