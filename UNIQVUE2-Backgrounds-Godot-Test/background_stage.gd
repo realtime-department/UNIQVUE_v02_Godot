@@ -56,6 +56,26 @@ void fragment() {
 	COLOR = vec4(c.rgb, c.a * fade * inside);
 }"
 
+# Finaler On-Screen-Overlay auf die HDR-Master-Textur (enthaelt bereits das
+# additive Bloom des Master-WorldEnvironments): ACES-Tonemap -> Vignette -> Grain.
+# Entspricht dem Web-Tonemap (studio-v005.html:261-275): aces(scene+bloom), dann
+# Vignette und Grain.
+const OVERLAY_SHADER := "shader_type canvas_item;
+uniform float vignette : hint_range(0.0, 1.0) = 0.5;
+uniform float grain : hint_range(0.0, 0.3) = 0.0;
+vec3 aces(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+void fragment() {
+	vec3 c = aces(texture(TEXTURE, UV).rgb);
+	float d = distance(UV, vec2(0.5));
+	float vig = smoothstep(0.25, 0.72, d);
+	c *= 1.0 - vig * vignette;
+	float g = hash(fract(UV * vec2(640.0, 360.0)) + TIME * 0.37) - 0.5;
+	float lum = dot(c, vec3(0.299, 0.587, 0.114));
+	c += g * grain * (1.0 + (1.0 - lum) * 1.5);
+	COLOR = vec4(clamp(c, 0.0, 1.0), 1.0);
+}"
+
 var _vps: Array[SubViewport] = []
 var _rects: Array[TextureRect] = []
 var _mats: Array[ShaderMaterial] = []
@@ -66,22 +86,50 @@ var _scene_idx := 0       # Index in SCENES, der gerade aktiv ist
 var _busy := false
 var _forced_size := Vector2i.ZERO   # != 0 -> SubViewports rendern in dieser (Wand-)Groesse
 
+# --- S1: Master-Composite (Variante A) ---
+# Beide Layer-Rects werden in _master additiv in HDR-2D komponiert; dessen
+# WorldEnvironment liefert globalen Bloom (2D-HDR-Glow). _final liest die HDR-
+# Master-Textur und macht ACES-Tonemap + Vignette + Grain on-screen.
+var _master: SubViewport
+var _final: TextureRect
+var _post_env: Environment
+var _overlay_mat: ShaderMaterial
+
 
 func _ready() -> void:
 	layer = 0  # unter der UI (layer 100)
 	var vp_size := get_window().size
 
-	# Schwarzer Hintergrund als Sicherheitsfond.
+	# --- Master-Composite-Viewport (Variante A) ---
+	# HDR-2D, eigener World -> isoliertes WorldEnvironment (nur Glow/Bloom). Hier
+	# komponieren die beiden Layer-Rects additiv; das Bloom wirkt global ueber die
+	# Mischung. _final liest die HDR-Master-Textur (ACES-Tonemap + Vignette + Grain).
+	_master = SubViewport.new()
+	_master.own_world_3d = true
+	_master.transparent_bg = false
+	_master.size = vp_size
+	_master.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	_master.use_hdr_2d = true  # additive Ueberlappung > 1.0 -> echtes Bloom-Futter
+	add_child(_master)
+
+	# Schwarzer Hintergrund als Sicherheitsfond (im Master).
 	_bg = ColorRect.new()
 	_bg.color = Color(0, 0, 0, 1)
 	_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_bg)
+	_master.add_child(_bg)
+
+	# Globaler Post: WorldEnvironment im Master (Bloom/Glow ueber die Mischung).
+	var we := WorldEnvironment.new()
+	_post_env = _make_post_env()
+	we.environment = _post_env
+	_master.add_child(we)
 
 	var shader := Shader.new()
 	shader.code = LAYER_SHADER
 
-	# Zwei Slots: je ein SubViewport + ein vollflaechiges TextureRect mit Zoom-Shader.
+	# Zwei Slots: je ein SubViewport (off-screen) + ein vollflaechiges TextureRect
+	# (im Master) mit Zoom-Shader.
 	for i in range(2):
 		var vp := SubViewport.new()
 		vp.own_world_3d = true
@@ -106,8 +154,26 @@ func _ready() -> void:
 		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		rect.material = mat
 		rect.visible = false
-		add_child(rect)
+		_master.add_child(rect)
 		_rects.append(rect)
+
+	# Finaler On-Screen-Rect: Master-Textur + Vignette/Grain.
+	_overlay_mat = ShaderMaterial.new()
+	var osh := Shader.new()
+	osh.code = OVERLAY_SHADER
+	_overlay_mat.shader = osh
+	_overlay_mat.set_shader_parameter("vignette", 0.5)
+	_overlay_mat.set_shader_parameter("grain", 0.0)
+
+	_final = TextureRect.new()
+	_final.texture = _master.get_texture()
+	_final.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_final.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_final.stretch_mode = TextureRect.STRETCH_SCALE
+	_final.texture_repeat = CanvasItem.TEXTURE_REPEAT_DISABLED
+	_final.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_final.material = _overlay_mat
+	add_child(_final)
 
 	get_window().size_changed.connect(_on_window_resized)
 
@@ -116,6 +182,23 @@ func _ready() -> void:
 	_active = 0
 	_load_into(0, SCENES[0])
 	_show_only(0)
+
+
+# Globales Post-Environment fuer den Master-Composite — NUR Bloom (2D-HDR-Glow).
+# Tonemap (ACES) + Vignette + Grain macht bewusst der Overlay-Shader (_final), da
+# auf ein kamera-loses 2D-Viewport nur das Glow zuverlaessig wirkt. Reihenfolge
+# entspricht dem Web: additives Bloom -> ACES -> Vignette/Grain.
+func _make_post_env() -> Environment:
+	var e := Environment.new()
+	e.background_mode = Environment.BG_CANVAS   # 2D-Canvas ist die "Szene" des Masters
+	e.glow_enabled = true
+	e.glow_intensity = 1.4
+	e.glow_strength = 1.2
+	e.glow_bloom = 0.2
+	e.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
+	e.glow_hdr_threshold = 0.7
+	e.glow_hdr_scale = 1.0
+	return e
 
 
 func _on_window_resized() -> void:
@@ -128,9 +211,21 @@ func active_root() -> Node:
 	return _roots[_active]
 
 
-# Textur der aktuell aktiven Hintergrund-Ebene (fuer die Multi-Window-Vorschau).
+# Textur des fertig komponierten + getonemappten Master-Bildes (fuer die
+# Multi-Window-Vorschau). Vignette/Grain liegen erst im _final-Overlay und damit
+# bewusst NICHT in der Wand-Vorschau (sonst Vignette pro Einzelschirm).
 func active_texture() -> Texture2D:
-	return _vps[_active].get_texture()
+	return _master.get_texture()
+
+
+# Globales Post-Environment (Master) — vom RuntimeUI-Panel als POST-Zone genutzt.
+func post_environment() -> Environment:
+	return _post_env
+
+
+# Overlay-Material (Vignette/Grain) — vom RuntimeUI-Panel als POST-Regler genutzt.
+func post_overlay() -> ShaderMaterial:
+	return _overlay_mat
 
 
 # SubViewports unabhaengig von der Fenstergroesse in einer festen (Wand-)Aufloesung
@@ -149,6 +244,8 @@ func _apply_vp_size() -> void:
 	var s: Vector2i = _forced_size if _forced_size != Vector2i.ZERO else get_window().size
 	for vp in _vps:
 		vp.size = s
+	if _master != null:
+		_master.size = s
 
 
 # Naechste Szene in SCENES-Reihenfolge.

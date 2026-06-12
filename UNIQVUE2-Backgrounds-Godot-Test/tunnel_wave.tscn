@@ -16,15 +16,7 @@ background_mode = 2
 sky = SubResource("Sky_grad")
 ambient_light_source = 0
 reflected_light_source = 0
-tonemap_mode = 3
-tonemap_white = 6.0
-glow_enabled = true
-glow_intensity = 1.4
-glow_strength = 1.2
-glow_bloom = 0.2
-glow_blend_mode = 2
-glow_hdr_threshold = 0.3
-glow_hdr_scale = 1.0
+tonemap_mode = 0
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_streak"]
 render_priority = 0
