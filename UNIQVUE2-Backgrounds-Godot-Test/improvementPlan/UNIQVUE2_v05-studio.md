@@ -5,7 +5,7 @@
 (`UNIQVUE2-Backgrounds-Godot-Test`) übertragen — adaptiert an Godots Stärken,
 nicht 1:1 die RT-Pipeline nachgebaut.
 
-**Stand:** S0–S4 implementiert (siehe §4 / §8). S5–S6 offen.
+**Stand:** S0–S5 implementiert (siehe §4 / §8). S6 (content, 5 weitere Module) offen.
 
 Alle Behauptungen unten sind gegen den Quellcode geprüft; Web-Referenzen als
 `studio-v005.html:Zeile`, Godot-Referenzen als `datei.gd:Zeile`.
@@ -219,8 +219,10 @@ Studio-Parität-Erweiterung darüber.
   Persistenz nach `user://sequence.json`; Param-Morph (gleiche Szene, `apply_lerp`) +
   Zoom-Transition (Szenenwechsel). SEQUENCE-Sektion im Panel. D3 entschieden (s. §5).
   *Faltet improvementPlan 1.2 (Auto-Cycle) ein. Volles Keyframe-Timeline = später.*
-- **S5 — Transition-Modi + Schema-Komfort (G6/G7).** Crossfade-Modus; Dial/Shape;
-  pro-State-Transition-Wahl.
+- **S5 — Transition-Modi + Schema-Komfort + Particle Wave Korrektur (G6/G7).** ✅ **ERLEDIGT** —
+  Crossfade-Modus; Shape-Picker; per-Step-Mode-Dropdown; PREV-Button; JSON Export/Import;
+  Wire-Grid; Particle Wave zu HTML-Parität korrigiert (Punkt-Größe, Fragment-Thresholds,
+  Glow-Formel, Grid-Zentrierung, Kamera-Semantik).
 - **S6 (separater Track) — Restliche 5 Module portieren (G8).** Eins nach dem anderen.
 
 Reihenfolge ist hart: S0 lieferte die globalen Uniforms (✅), ohne die S1/S3 keine
@@ -270,13 +272,12 @@ Farb-Zone hätten; S2 liefert die Param-Map, ohne die S4 nichts morphen kann.
 
 ## 7. Nächster Schritt
 
-S0–S4 sind umgesetzt. Als Nächstes **S5** (Transition-Modi + Schema-Komfort, G6/G7):
-zweiter Transition-Modus `cross` (reine Fade ohne Zoom-Hub) neben dem bestehenden
-Zoom (= `zpush`), per-Schritt wählbar (`transition_to(idx, mode)` + Feld im
-Sequencer-Schritt); dazu Dial/Shape-Controls im Panel. Danach optional **S4.5**:
-volle Keyframe-Timeline (per-Param-Tracks, Scrubber, Easing) als Ausbau des
-Sequencers. Weiterhin erwägenswert: UI + ParamStore-Enumeration auf EIN Register
-vereinen. Optional vorab **M0** (`particle_wave.tscn` `unique_id=`-Sanierung).
+S0–S5 sind umgesetzt (✅ Framework-Parität + Particle Wave Korrektur). Als Nächstes **S6**
+(Content, G8): die restlichen 5 Module nacheinander portieren (plexus, lines, stripes,
+cubic, structure). Optional-Ausbau: **S4.5** (volle Keyframe-Timeline — per-Param-Tracks,
+Scrubber, Easing als Ausbau des Sequencers). Weiterhin erwägenswert: UI + ParamStore-
+Enumeration auf EIN Register vereinen. Optional vorab **M0** (`particle_wave.tscn`
+`unique_id=`-Sanierung).
 
 ---
 
@@ -446,3 +447,45 @@ Szene neu gebaut hat, bevor die Preset-Werte greifen.
    um; aktiver Schritt ist mit ▶ markiert. **STOP** hält an, **NEXT** springt manuell weiter.
 4. hold/trans je Schritt verstellen, Reihenfolge mit ↑↓ ändern, ✕ löscht — wirkt sofort.
 5. App neu starten → Playlist (aus `user://sequence.json`) ist noch da.
+
+### S5 — Transition-Modi + Schema-Komfort + Particle Wave Korrektur *(erledigt; Editor-Verifikation in 4.6.1 offen)*
+
+**Crossfade-Transition (G6):**
+- `background_stage.gd` — `transition_to(target_idx, mode="zoom")`: zwei Branches: "cross" = reine Fade ohne Zoom-Hub (beide Materials bei zoom=1), "zoom" = bestehender Push-Zoom
+- `sequencer.gd` — `add_step(preset, hold, trans, mode="zoom")` speichert `mode`-Feld, `_go_to()` liest es und übergibt an `_stage.transition_to(idx, mode)`
+- `runtime_ui.gd` — **SEQUENCE**: PREV-Button für Rückwärts-Navigation; pro Schritt `mode`-Dropdown (Zoom/Cross) in `_build_seq_step`; JSON-Toggle mit EXPORT/IMPORT für Playlist
+
+**Shape-Picker (G7):**
+- `particle_wave.gdshader` — neue `shape`-Uniform mit 5 Formen (Dot/Ring/Square/Star/Cross)
+- `runtime_ui.gd` — `_add_shape_picker()` baut 5-Button-HBox; `_add_control_for` routet `shape`-Uniforms dorthin
+
+**Wire-Mesh für Wave:**
+- `wave_wire.gdshader` — NEU: Shader für PRIMITIVE_LINES, gleiche Wave-Vertex-Formel, `_Sync`-Gruppe (hidden von UI), nur `wire_opacity` exposed
+- `grid_builder.gd` — vollständig rewritten: `set_density()` triggert Rebuild; `_build_wire()` erstellt Sibling-Wire-Node mit IndexBuffer (horizontal+vertical Linien)
+- `particle_wave_root.gd` — NEU: Root-Script mit camera params (@exports) + `_sync_wire()` propagiert Grid-Uniforms zu Wire je Frame
+
+**Particle Wave Korrektur (Kritisch — war visuell falsch):**
+
+HTML-Vergleich zeigte fundamentale Fehler:
+- **Grid Z nicht zentriert**: HTML baut `(j/(GH-1) - 0.5)*SPAN_Z`; Godot war `j/(GH-1)*SPAN_Z` → Gitter begann bei 0 statt zentriert
+- **Punkt-Größe linear statt perspektivisch**: HTML `120/vz`; Godot war Tiefenliner-Mix
+- **Fragment-Schwellwerte falsch**: HTML `smoothstep(0.2,0.6)` / `smoothstep(0.55,0.9)`, Crest `smoothstep(0.45,0.85)`; Godot `(0,0.55)` / `(0.55,0.95)` / `(0.6,0.95)`
+- **Glow-Formel falsch**: HTML zwei `m`-gewichtete Terme; Godot vereinfacht
+- **Flow abhängig von Speed**: HTML `uFlowT` unabhängiger Accumulator; Godot `speed*flow`
+- **Kamera Height falsch**: HTML default 3.5; Godot 4.0
+- **cam_pitch Semantik**: HTML ist Y-Koordinate des Look-Target, nicht ein Winkel
+
+**Fixes in Dateien:**
+- `particle_wave.gdshader`: Punkt-Größe `point_size * (120.0/vz)`, Fragment Thresholds `(0.2,0.6)` / `(0.55,0.9)` / Crest `(0.45,0.85)`, Glow zwei Terme mit `m`, Flow `TIME*flow*8.0` (unabhängig)
+- `wave_wire.gdshader`: gleiche Fixes; Wire-Fragment `mix(elem_a, elem_b, ...)`
+- `grid_builder.gd`: Grid Z: `(j/(GH-1)-0.5)*span_z`, span 60×120 → **320×420**
+- `particle_wave_root.gd`: cam_height 4.0 → **3.5**, cam_pitch Semantik: angle → Y-Koordinate, `look_at(camYaw*0.3, camPitch, 60.0)`
+- `particle_wave.tscn`: alle Defaults aktualisiert
+
+**Verifikation in Godot 4.6.1 (vom Nutzer durchzuführen)**
+1. Wave-Szene lädt, Gitter sichtbar (nicht mehr z_far-geklemmt), perspektivisch korrekt
+2. Partikel-Größe ändert sich mit Kamera-Tiefe (nahe Punkte größer)
+3. Farb-Gradienten von Tal (dunkel) zu Kamm (hell) weich und korrekt
+4. Glow auf Kämmen intensiv (zwei-Term-Formel)
+5. Flow-Animation läuft flüssig, unabhängig von Speed-Parameter
+6. cam_pitch-Slider bewegt Blick vertikal (Y-Koordinate), nicht Kippen
