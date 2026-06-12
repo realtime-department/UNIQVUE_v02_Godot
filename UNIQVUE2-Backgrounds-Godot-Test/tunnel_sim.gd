@@ -13,10 +13,10 @@ extends Node3D
 @export_range(0, 6000, 1) var particle_count: int = 2200
 @export_range(5.0, 150.0, 1.0) var radius: float = 70.0
 
-@export_group("Colors")
-@export var color_far: Color = Color(0.039, 0.102, 0.227, 1)
-@export var color_mid: Color = Color(0.227, 0.627, 1.0, 1)
-@export var color_near: Color = Color(1.0, 1.0, 1.0, 1)
+# Farben kommen jetzt global aus STYLE (fog_color/elem_a/elem_b) statt aus
+# per-Szene-@exports. Konvention wie im Web-Studio: c1=Fog, c2=elemA, c3=elemB
+# (studio-v005.html:356). Werden je Frame in _simulate() aus dem Style-Autoload
+# gelesen (guenstig) und CPU-seitig in die Vertex-Farben gemischt.
 
 @export_group("Appearance")
 @export_range(0.0, 1.0, 0.01) var opacity: float = 0.9
@@ -76,6 +76,10 @@ func _simulate(dt: float) -> void:
 	_head_mesh.clear_surfaces()
 	_streak_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
 	_head_mesh.surface_begin(Mesh.PRIMITIVE_POINTS)
+	# Farben zentral aus STYLE (fern/Tal -> nah/Glanz).
+	var color_far: Color = Style.get_color("fog_color")
+	var color_mid: Color = Style.get_color("elem_a")
+	var color_near: Color = Style.get_color("elem_b")
 	var n := mini(NMAX, particle_count)
 	for i in range(n):
 		_pz[i] -= speed * dt

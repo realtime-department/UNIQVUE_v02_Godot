@@ -88,6 +88,9 @@ func _build_chrome() -> void:
 	# --- STAGE: virtuelle Display-Konfiguration (global, bleibt ueber Szenen) ---
 	_build_stage_config(outer)
 
+	# --- STYLE: zentrale Farbpalette (global, background-uebergreifend) ---
+	_build_style_config(outer)
+
 	# --- Scrollbarer Reglerbereich (Inhalt wird pro Szene neu befuellt) ---
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -606,6 +609,41 @@ func _build_stage_config(parent: Node) -> void:
 	var close_btn := _cfg_button("CLOSE PREVIEW WINDOWS")
 	parent.add_child(close_btn)
 	close_btn.pressed.connect(func() -> void: ds.call("close_preview"))
+
+
+## Globaler STYLE-Bereich: die 8 Palettenfarben als gestapelte Swatch-Zeilen
+## (Name links, breiter Farbbalken rechts), in zwei beschriftete Gruppen geteilt.
+## Reihenfolge der Gradient-Stops von oben (Zenit) nach unten (Boden) — spiegelt
+## den tatsaechlichen Himmelsverlauf. Steuert das Style-Autoload, das die Werte in
+## globale Shader-Uniforms spiegelt. Bleibt ueber alle Szenen bestehen.
+func _build_style_config(parent: Node) -> void:
+	var st := get_node_or_null("/root/Style")
+	if st == null:
+		return
+
+	_add_section(parent, "STYLE · GRADIENT")
+	for pair in [
+		["sky_zenith", "zenith"], ["sky_mid", "sky"], ["sky_horizon", "horizon"],
+		["sky_ground_mid", "grnd-mid"], ["sky_ground", "ground"],
+	]:
+		_add_style_swatch(parent, st, str(pair[0]), str(pair[1]))
+
+	_add_section(parent, "STYLE · ELEMENT")
+	for pair in [["fog_color", "fog"], ["elem_a", "elem A"], ["elem_b", "elem B"]]:
+		_add_style_swatch(parent, st, str(pair[0]), str(pair[1]))
+
+
+# Eine Palettenzeile: Name (feste Spalte) + vollbreiter ColorPickerButton.
+func _add_style_swatch(parent: Node, st: Node, key: String, label: String) -> void:
+	var row := _make_row(parent, label)
+	var btn := ColorPickerButton.new()
+	btn.color = st.call("get_color", key)
+	btn.edit_alpha = false
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.custom_minimum_size = Vector2(0, 18)
+	btn.color_changed.connect(func(c: Color) -> void:
+		st.call("set_color", key, c))
+	row.add_child(btn)
 
 
 func _cfg_label(text: String) -> Label:

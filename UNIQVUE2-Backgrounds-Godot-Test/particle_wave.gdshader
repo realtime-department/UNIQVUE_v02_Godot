@@ -3,6 +3,12 @@ shader_type spatial;
 // depth_draw_never: Punkte schreiben keine Tiefe -> transparentes Additivblending korrekt.
 render_mode unshaded, depth_draw_never, blend_add, cull_disabled;
 
+// ---- Globale STYLE-Palette (background-uebergreifend, siehe style.gd) ----
+// c1=Tal/Fog, c2=elem_a, c3=elem_b (Konvention wie Web-Studio studio-v005.html:501).
+global uniform vec4 fog_color : source_color;   // ehem. col_valley
+global uniform vec4 elem_a : source_color;       // ehem. col_mid
+global uniform vec4 elem_b : source_color;       // ehem. col_crest
+
 // ---- Wellen-Parameter (entsprechen den Three.js-Uniforms) ----
 group_uniforms Wave;
 uniform float amp        : hint_range(0.0, 20.0)  = 5.0;    // uAmp
@@ -21,9 +27,7 @@ group_uniforms;
 group_uniforms Appearance;
 uniform float point_size : hint_range(1.0, 8.0)   = 2.0;
 uniform float glow_boost : hint_range(0.0, 4.0)   = 1.5;    // uGlow, Kamm-Ueberstrahlung
-uniform vec3  col_valley : source_color = vec3(0.05, 0.10, 0.22);  // uC1 fern/Tal
-uniform vec3  col_mid    : source_color = vec3(0.15, 0.45, 0.75);  // uC2
-uniform vec3  col_crest  : source_color = vec3(0.65, 0.90, 1.00);  // uC3 Kamm
+// Farben kommen jetzt global aus STYLE (fog_color/elem_a/elem_b), s.o.
 uniform float z_near     : hint_range(0.0, 30.0)  = 4.0;     // uZNear  Tiefen-Fade Start
 uniform float z_far      : hint_range(10.0, 200.0)= 90.0;    // uZFar   Tiefen-Fade Ende
 group_uniforms;
@@ -82,12 +86,12 @@ void fragment() {
 	// weiche Kante
 	float a = smoothstep(0.5, 0.32, d) * v_fade;
 
-	// hoehenabhaengige Faerbung: Tal -> Mid -> Kamm
-	vec3 col = mix(col_valley, col_mid, smoothstep(0.0, 0.55, v_h));
-	col = mix(col, col_crest, smoothstep(0.55, 0.95, v_h));
+	// hoehenabhaengige Faerbung: Tal -> Mid -> Kamm (Farben global aus STYLE)
+	vec3 col = mix(fog_color.rgb, elem_a.rgb, smoothstep(0.0, 0.55, v_h));
+	col = mix(col, elem_b.rgb, smoothstep(0.55, 0.95, v_h));
 	// Kaemme ueberstrahlen als Bloom-Futter (HDR > 1.0 fuer Glow)
 	float crest = smoothstep(0.6, 0.95, v_h);
-	col += col_crest * crest * glow_boost;
+	col += elem_b.rgb * crest * glow_boost;
 
 	ALBEDO = col;
 	EMISSION = col;            // unshaded: Emission traegt die Farbe in den Glow
