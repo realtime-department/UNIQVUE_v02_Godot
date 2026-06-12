@@ -37,6 +37,10 @@ var _collapsed := {}
 # STYLE-Swatches (persistent im outer-Container) zum Nach-Synchronisieren nach
 # einem Preset-LOAD — sonst zeigen die Farbfelder noch die alten Werte.
 var _style_swatches: Array = []
+# SEQUENCE-Sektion (persistent im outer-Container): Schritt-Liste + Dropdown + Status.
+var _seq_list: VBoxContainer
+var _seq_opt: OptionButton
+var _seq_status: Label
 
 
 func _ready() -> void:
@@ -97,6 +101,9 @@ func _build_chrome() -> void:
 
 	# --- PRESET: benannte Presets speichern/laden (S3, global) ---
 	_build_preset_config(outer)
+
+	# --- SEQUENCE: Preset-Playlist + Playback (S4, global) ---
+	_build_sequencer_config(outer)
 
 	# --- Scrollbarer Reglerbereich (Inhalt wird pro Szene neu befuellt) ---
 	var scroll := ScrollContainer.new()
@@ -842,6 +849,178 @@ func _sync_style_swatches() -> void:
 		b.set_block_signals(true)
 		b.color = sw.st.call("get_color", sw.key)
 		b.set_block_signals(false)
+
+
+## Globaler SEQUENCE-Bereich (S4): Preset-Playlist bauen + abspielen via Sequencer.
+## Oben Preset-Picker + ADD, darunter die (hoehenbegrenzte, scrollbare) Schrittliste,
+## darunter PLAY/STOP/NEXT. Liegt im persistenten outer-Container. Startet eingeklappt,
+## damit die Sektion das gepinnte Panel nicht ueberfuellt.
+func _build_sequencer_config(parent: Node) -> void:
+	var seq := get_node_or_null("/root/Sequencer")
+	var core := get_node_or_null("/root/BgCore")
+	if seq == null or core == null:
+		return
+	if not _collapsed.has("SEQUENCE"):
+		_collapsed["SEQUENCE"] = true
+
+	var body := _add_section(parent, "SEQUENCE")
+
+	# Preset-Picker + ADD.
+	var addrow := HBoxContainer.new()
+	addrow.add_theme_constant_override("separation", 4)
+	_seq_opt = OptionButton.new()
+	_seq_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_seq_opt.add_theme_font_size_override("font_size", 11)
+	_seq_opt.custom_minimum_size = Vector2(0, 24)
+	addrow.add_child(_seq_opt)
+	var add_btn := _cfg_button("ADD")
+	add_btn.size_flags_horizontal = Control.SIZE_SHRINK_END
+	add_btn.custom_minimum_size = Vector2(54, 26)
+	addrow.add_child(add_btn)
+	body.add_child(addrow)
+
+	# Schrittliste — feste Hoehe, scrollt intern (sonst sprengt eine lange Playlist
+	# das gepinnte Panel).
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.custom_minimum_size = Vector2(0, 150)
+	body.add_child(sc)
+	_seq_list = VBoxContainer.new()
+	_seq_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_seq_list.add_theme_constant_override("separation", 4)
+	sc.add_child(_seq_list)
+
+	# Transport.
+	var trow := HBoxContainer.new()
+	trow.add_theme_constant_override("separation", 4)
+	var play_btn := _cfg_button("PLAY")
+	var stop_btn := _cfg_button("STOP")
+	var next_btn := _cfg_button("NEXT")
+	trow.add_child(play_btn)
+	trow.add_child(stop_btn)
+	trow.add_child(next_btn)
+	body.add_child(trow)
+
+	_seq_status = Label.new()
+	_seq_status.add_theme_font_size_override("font_size", 10)
+	_seq_status.add_theme_color_override("font_color", COL_MUTED)
+	_seq_status.clip_text = true
+	body.add_child(_seq_status)
+
+	var refresh_opt := func() -> void:
+		_seq_opt.clear()
+		for n in core.call("list_presets"):
+			_seq_opt.add_item(str(n))
+	refresh_opt.call()
+
+	add_btn.pressed.connect(func() -> void:
+		if _seq_opt.selected < 0:
+			if _seq_status != null:
+				_seq_status.text = "save a preset first"
+			return
+		var nm := _seq_opt.get_item_text(_seq_opt.selected)
+		seq.call("add_step", nm, 3.0, _stage_transition_time()))
+
+	play_btn.pressed.connect(func() -> void: seq.call("play"))
+	stop_btn.pressed.connect(func() -> void: seq.call("stop"))
+	next_btn.pressed.connect(func() -> void: seq.call("next"))
+
+	# Dropdown bei Preset-Aenderung, Liste bei Playback-/Listen-Aenderung aktualisieren.
+	if not core.is_connected("presets_changed", refresh_opt):
+		core.connect("presets_changed", refresh_opt)
+	if not seq.is_connected("state_changed", _refresh_seq_list):
+		seq.connect("state_changed", _refresh_seq_list)
+
+	_refresh_seq_list()
+
+
+## Schrittliste aus dem Sequencer neu aufbauen (an state_changed gebunden).
+func _refresh_seq_list() -> void:
+	if _seq_list == null:
+		return
+	var seq := get_node_or_null("/root/Sequencer")
+	if seq == null:
+		return
+	while _seq_list.get_child_count() > 0:
+		var c := _seq_list.get_child(0)
+		_seq_list.remove_child(c)
+		c.queue_free()
+	var count: int = seq.call("step_count")
+	var cur: int = seq.call("current_index")
+	var playing: bool = seq.call("is_playing")
+	for i in range(count):
+		_build_seq_step(_seq_list, seq, i, cur, playing)
+	if _seq_status != null:
+		if playing and count > 0:
+			_seq_status.text = "playing  %d/%d" % [cur + 1, count]
+		else:
+			_seq_status.text = "%d steps" % count
+
+
+## Eine Schrittzeile: oben Marker+Name+up/down/del, darunter hold/trans-Spinboxen.
+func _build_seq_step(parent: Node, seq: Node, i: int, cur: int, playing: bool) -> void:
+	var step: Dictionary = seq.call("get_step", i)
+	var active := playing and i == cur
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 1)
+	parent.add_child(box)
+
+	var r1 := HBoxContainer.new()
+	r1.add_theme_constant_override("separation", 4)
+	var marker := Label.new()
+	marker.text = "▶" if active else ("%d" % (i + 1))
+	marker.add_theme_font_size_override("font_size", 11)
+	marker.add_theme_color_override("font_color", Color.WHITE if active else COL_MUTED)
+	marker.custom_minimum_size = Vector2(16, 0)
+	r1.add_child(marker)
+	var nm := Label.new()
+	nm.text = str(step.get("preset", ""))
+	nm.add_theme_font_size_override("font_size", 11)
+	nm.clip_text = true
+	nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nm.tooltip_text = nm.text
+	r1.add_child(nm)
+	var up := _mini_button("↑")
+	var dn := _mini_button("↓")
+	var dl := _mini_button("✕")
+	r1.add_child(up)
+	r1.add_child(dn)
+	r1.add_child(dl)
+	box.add_child(r1)
+
+	var r2 := HBoxContainer.new()
+	r2.add_theme_constant_override("separation", 4)
+	r2.add_child(_cfg_label("hold"))
+	var hold_spin := _cfg_spin(0.0, 600.0, 0.1, float(step.get("hold", 3.0)))
+	r2.add_child(hold_spin)
+	r2.add_child(_cfg_label("trans"))
+	var trans_spin := _cfg_spin(0.0, 30.0, 0.05, float(step.get("trans", 1.2)))
+	r2.add_child(trans_spin)
+	box.add_child(r2)
+
+	hold_spin.value_changed.connect(func(v: float) -> void:
+		seq.call("set_step_value", i, "hold", v))
+	trans_spin.value_changed.connect(func(v: float) -> void:
+		seq.call("set_step_value", i, "trans", v))
+	up.pressed.connect(func() -> void: seq.call("move_step", i, -1))
+	dn.pressed.connect(func() -> void: seq.call("move_step", i, 1))
+	dl.pressed.connect(func() -> void: seq.call("remove_step", i))
+
+
+func _mini_button(text: String) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.flat = true
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", 11)
+	b.add_theme_color_override("font_color", Color.WHITE)
+	b.add_theme_stylebox_override("normal", _button_style(0.0))
+	b.add_theme_stylebox_override("hover", _button_style(0.12))
+	b.add_theme_stylebox_override("pressed", _button_style(0.22))
+	b.add_theme_stylebox_override("focus", _button_style(0.0))
+	b.custom_minimum_size = Vector2(22, 22)
+	return b
 
 
 func _cfg_label(text: String) -> Label:

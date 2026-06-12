@@ -5,7 +5,7 @@
 (`UNIQVUE2-Backgrounds-Godot-Test`) übertragen — adaptiert an Godots Stärken,
 nicht 1:1 die RT-Pipeline nachgebaut.
 
-**Stand:** S0 implementiert (siehe §4 / §8). S1–S6 offen.
+**Stand:** S0–S4 implementiert (siehe §4 / §8). S5–S6 offen.
 
 Alle Behauptungen unten sind gegen den Quellcode geprüft; Web-Referenzen als
 `studio-v005.html:Zeile`, Godot-Referenzen als `datei.gd:Zeile`.
@@ -214,9 +214,11 @@ Studio-Parität-Erweiterung darüber.
   (BgCore-Autoload): benannte Presets als JSON in `user://presets/`; diff/resolve/
   summarize für S4; PRESET-Sektion im Panel (SAVE/LOAD/DEL). *Faltet improvementPlan
   1.3 ein. Details §8.*
-- **S4 — Sequencer-UI + Playback (G4/G5).** States-Liste, Root+Deltas, Hold/Dur/
-  Transition, Reorder, Play; Param-Morph (gleiche Szene) + Transition (Szenenwechsel).
-  *Faltet improvementPlan 1.2 (Auto-Cycle) ein. Braucht D3.*
+- **S4 — Sequencer-UI + Playback (G4/G5).** ✅ `sequencer.gd` (Sequencer-Autoload):
+  Preset-Playlist (Schritt = `{preset, hold, trans}`), Play/Stop/Next, Reorder,
+  Persistenz nach `user://sequence.json`; Param-Morph (gleiche Szene, `apply_lerp`) +
+  Zoom-Transition (Szenenwechsel). SEQUENCE-Sektion im Panel. D3 entschieden (s. §5).
+  *Faltet improvementPlan 1.2 (Auto-Cycle) ein. Volles Keyframe-Timeline = später.*
 - **S5 — Transition-Modi + Schema-Komfort (G6/G7).** Crossfade-Modus; Dial/Shape;
   pro-State-Transition-Wahl.
 - **S6 (separater Track) — Restliche 5 Module portieren (G8).** Eins nach dem anderen.
@@ -233,9 +235,9 @@ Farb-Zone hätten; S2 liefert die Param-Map, ohne die S4 nichts morphen kann.
   **Offen — vor S1 zu klären.**
 - **D2 — Gradient-Hintergrund:** Sky-Shader vs. ColorRect-Gradient-Layer.
   ✅ **Entschieden: Sky-Shader** (in S0 umgesetzt).
-- **D3 — Sequencer-Heimat:** Erweiterung von `runtime_ui.gd`/`background_stage.gd`
-  vs. neues `Sequencer`-Autoload. → Empfehlung neues Autoload (Trennung der Belange,
-  Reihenfolge: nach BackgroundStage). **Offen — vor S4.**
+- **D3 — Sequencer-Heimat:** ✅ **Entschieden: neues `Sequencer`-Autoload** (in S4
+  umgesetzt; nach `BgCore`, vor `RuntimeUI`). Trennt Laufzeit-Playback (Uhr/Cursor/
+  is_playing) von BgCores Datei-I/O; RuntimeUI ruft nur `play/stop/next`.
 - **D4 — Param-Identität:** ✅ **Entschieden: flaches benanntes Schema** (in S2
   umgesetzt): `style/<key>`, `scene/<export>`, `mat/<Node>/<uniform>`, `post/<prop>`,
   `overlay/<prop>`. Stabil über Reload/Szenenwechsel; `apply()` überspringt
@@ -268,13 +270,13 @@ Farb-Zone hätten; S2 liefert die Param-Map, ohne die S4 nichts morphen kann.
 
 ## 7. Nächster Schritt
 
-S0–S3 sind umgesetzt. Als Nächstes **S4** (Sequencer-UI + Playback): States-Liste auf
-Basis von BgCore-Presets (Root+Deltas via `diff`/`resolve`), Hold/Dur/Transition,
-Param-Morph (gleiche Szene, via `ParamStore.lerp_values`) + Transition (Szenenwechsel).
-Davor **D3** klären (Sequencer-Heimat → Empfehlung neues `Sequencer`-Autoload). S4
-sollte LOAD szenenbewusst machen (zur getaggten Szene wechseln, dann anwenden) und
-erwägen, UI + ParamStore-Enumeration auf EIN Register zu vereinen. Optional vorab
-**M0** (`particle_wave.tscn` `unique_id=`-Sanierung).
+S0–S4 sind umgesetzt. Als Nächstes **S5** (Transition-Modi + Schema-Komfort, G6/G7):
+zweiter Transition-Modus `cross` (reine Fade ohne Zoom-Hub) neben dem bestehenden
+Zoom (= `zpush`), per-Schritt wählbar (`transition_to(idx, mode)` + Feld im
+Sequencer-Schritt); dazu Dial/Shape-Controls im Panel. Danach optional **S4.5**:
+volle Keyframe-Timeline (per-Param-Tracks, Scrubber, Easing) als Ausbau des
+Sequencers. Weiterhin erwägenswert: UI + ParamStore-Enumeration auf EIN Register
+vereinen. Optional vorab **M0** (`particle_wave.tscn` `unique_id=`-Sanierung).
 
 ---
 
@@ -400,3 +402,47 @@ Parameter koordiniert. Der `scene`-Tag wird dafür bereits mitgespeichert.
    Slider/Swatches springen auf den gespeicherten Stand; Render aktualisiert.
 4. **DEL** entfernt das Preset aus Liste und Ordner.
 5. App neu starten → Preset weiterhin in der Liste, **LOAD** stellt es wieder her.
+
+### S4 — Sequencer-UI + Playback *(erledigt; Editor-Verifikation in 4.6.1 offen)*
+
+D3 = **neues `Sequencer`-Autoload**. Erste, on-air-taugliche Stufe: **Preset-Playlist
++ Crossfade** (nicht die volle Keyframe-Timeline — die ist späterer Ausbau).
+
+**Neue Datei**
+- `sequencer.gd` — Autoload **Sequencer** (nach `BgCore`, vor `RuntimeUI`). Playlist =
+  geordnete `Array` von Schritten `{preset, hold (s), trans (s)}`. `play()` läuft die
+  Liste in Schleife: pro Schritt `hold` halten, dann über `trans` zum nächsten Schritt
+  überblenden — **gleiche Szene** → Param-Morph (`ParamStore.apply_lerp` A→B je Frame),
+  **andere Szene** → bestehende Zoom-Transition (`BackgroundStage.transition_to`),
+  danach `apply` der Preset-Werte auf die neue Szene. Abbruch/Neustart über
+  Generationszähler `_gen` (jede Operation erhöht ihn; laufende Coroutine bricht ab,
+  sobald die gefangene Generation veraltet) — `_playing` ist reine UI-Anzeige, daher
+  funktioniert **NEXT** auch im Stillstand. API: `add_step/remove_step/move_step/
+  set_step_value/clear`, `get_step/step_count/current_index/is_playing`, `play/stop/
+  next`; `state_changed`-Signal. Playlist wird als JSON nach `user://sequence.json`
+  persistiert (reine String/Float-Werte) und beim Start geladen.
+
+**Geänderte Dateien**
+- `project.godot` — `Sequencer="*res://sequencer.gd"` zwischen `BgCore` und `RuntimeUI`.
+- `background_stage.gd` — Accessoren `current_scene_index()`, `scene_key_for_index(idx)`
+  (Wurzel-Knotenname via `PackedScene.get_state()` **ohne** Instanziierung — billig) und
+  `scene_index_for_key(key)`. Damit bildet der Sequencer den `scene`-Tag eines Presets
+  (= `active_scene_key`) auf einen SCENES-Index ab, um bei Bedarf dorthin zu wechseln.
+- `runtime_ui.gd` — persistente **SEQUENCE**-Sektion (`_build_sequencer_config`, startet
+  eingeklappt): Preset-Dropdown + **ADD**, höhenbegrenzte scrollbare Schrittliste
+  (`_refresh_seq_list`/`_build_seq_step`: Marker+Name+↑↓✕ und hold/trans-Spinboxen),
+  **PLAY/STOP/NEXT** + Status. `state_changed` → Liste neu (aktiver Schritt mit ▶
+  markiert); `presets_changed` → Dropdown neu.
+
+**Bewusste Grenzen (→ S5 / später):** nur EIN Transition-Modus (Zoom); `cross` kommt in
+S5. Keine per-Param-Keyframes/Scrubber (volle Timeline später). Beim Cross-Scene-Schritt
+wird nach `active_changed` ein Frame gewartet, damit ParamStore sein Register für die neue
+Szene neu gebaut hat, bevor die Preset-Werte greifen.
+
+**Verifikation in Godot 4.6.1 (vom Nutzer durchzuführen)**
+1. Projekt lädt fehlerfrei (Sequencer parst, keine Lambda-/Parser-Fehler).
+2. ≥2 Presets speichern (S3), SEQUENCE aufklappen → je Preset **ADD** → Schritte erscheinen.
+3. **PLAY**: Playlist läuft in Schleife; gleiche Szene morpht weich, andere Szene zoomt
+   um; aktiver Schritt ist mit ▶ markiert. **STOP** hält an, **NEXT** springt manuell weiter.
+4. hold/trans je Schritt verstellen, Reihenfolge mit ↑↓ ändern, ✕ löscht — wirkt sofort.
+5. App neu starten → Playlist (aus `user://sequence.json`) ist noch da.
