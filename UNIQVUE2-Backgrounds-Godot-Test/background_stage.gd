@@ -265,6 +265,13 @@ func transition_to(target_idx: int) -> void:
 	var in_slot := 1 - _active
 	_load_into(in_slot, SCENES[nxt_idx])
 
+	# Gemerkte Parameter dieser Szene SOFORT auf die noch unsichtbare neue Ebene
+	# anwenden — vor dem Aufwaermframe. Sonst rendert die einkommende Szene zuerst die
+	# .tscn-Defaults und springt erst nach dem Wechsel (active_changed) auf die echten
+	# Werte -> sichtbares Hochrampen waehrend des Zooms. Jetzt zoomt sie direkt im
+	# Zielzustand herein.
+	_preapply_scene_params(_roots[in_slot])
+
 	var in_rect := _rects[in_slot]
 	var out_rect := _rects[out_slot]
 	var in_mat := _mats[in_slot]
@@ -327,6 +334,17 @@ func _finish_transition(out_slot: int, in_slot: int, nxt_idx: int) -> void:
 	_scene_idx = nxt_idx
 	_busy = false
 	active_changed.emit(active_root())
+
+
+# ParamStore die gemerkten scene/*+mat/*-Werte dieser Szene auf den frisch geladenen
+# (noch unsichtbaren) Root anwenden lassen, bevor er gerendert wird. No-op, wenn es
+# fuer die Szene noch keinen Cache gibt (erster Besuch) oder ParamStore fehlt.
+func _preapply_scene_params(root: Node) -> void:
+	if root == null:
+		return
+	var ps := get_node_or_null("/root/ParamStore")
+	if ps != null:
+		ps.call("preapply_to_scene", root)
 
 
 func _load_into(slot: int, path: String) -> void:
