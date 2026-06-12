@@ -3,10 +3,19 @@
 [ext_resource type="Script" uid="uid://cgtsim000001" path="res://tunnel_sim.gd" id="1_sim"]
 [ext_resource type="Shader" uid="uid://cgtstrk00001" path="res://tunnel_streak.gdshader" id="2_streak"]
 [ext_resource type="Shader" uid="uid://cgthead00001" path="res://tunnel_head.gdshader" id="3_head"]
+[ext_resource type="Shader" path="res://gradient_sky.gdshader" id="4_sky"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_sky"]
+shader = ExtResource("4_sky")
+
+[sub_resource type="Sky" id="Sky_grad"]
+sky_material = SubResource("ShaderMaterial_sky")
 
 [sub_resource type="Environment" id="Environment_tunnel"]
-background_mode = 1
-background_color = Color(0.012, 0.031, 0.069, 1)
+background_mode = 2
+sky = SubResource("Sky_grad")
+ambient_light_source = 0
+reflected_light_source = 0
 tonemap_mode = 3
 tonemap_white = 6.0
 glow_enabled = true

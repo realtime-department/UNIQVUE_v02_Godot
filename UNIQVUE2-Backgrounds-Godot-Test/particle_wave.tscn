@@ -2,10 +2,19 @@
 
 [ext_resource type="Script" uid="uid://bv0oqhv6ptju4" path="res://grid_builder.gd" id="1_grid"]
 [ext_resource type="Shader" uid="uid://bvjkk6vooite6" path="res://particle_wave.gdshader" id="2_shader"]
+[ext_resource type="Shader" path="res://gradient_sky.gdshader" id="3_sky"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_sky"]
+shader = ExtResource("3_sky")
+
+[sub_resource type="Sky" id="Sky_grad"]
+sky_material = SubResource("ShaderMaterial_sky")
 
 [sub_resource type="Environment" id="Environment_post"]
-background_mode = 1
-background_color = Color(0.0196, 0.0235, 0.0275, 1)
+background_mode = 2
+sky = SubResource("Sky_grad")
+ambient_light_source = 0
+reflected_light_source = 0
 tonemap_mode = 3
 tonemap_white = 6.0
 glow_enabled = true
@@ -36,9 +45,6 @@ shader_parameter/mirror = 0.0
 shader_parameter/x_noise = 0.10000000475
 shader_parameter/point_size = 2.0
 shader_parameter/glow_boost = 1.5
-shader_parameter/col_valley = Color(0.05, 0.1, 0.22, 1)
-shader_parameter/col_mid = Color(0.15, 0.45, 0.75, 1)
-shader_parameter/col_crest = Color(0.65, 0.9, 1, 1)
 shader_parameter/z_near = 4.0
 shader_parameter/z_far = 90.0
 

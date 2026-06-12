@@ -18,6 +18,7 @@ config/icon="res://icon.svg"
 
 [autoload]
 
+Style="*res://style.gd"
 DisplaySetup="*res://display_setup.gd"
 BackgroundStage="*res://background_stage.gd"
 RuntimeUI="*res://runtime_ui.gd"
@@ -34,3 +35,38 @@ project/assembly_name="UNIQVUE2-Backgrounds-Godot-Test"
 [rendering]
 
 environment/defaults/default_clear_color=Color(0.019, 0.023, 0.027, 1)
+
+[shader_globals]
+
+sky_zenith={
+"type": "color",
+"value": Color(0.007843, 0.023529, 0.05098, 1)
+}
+sky_mid={
+"type": "color",
+"value": Color(0.023529, 0.070588, 0.121569, 1)
+}
+sky_horizon={
+"type": "color",
+"value": Color(0.039216, 0.164706, 0.290196, 1)
+}
+sky_ground_mid={
+"type": "color",
+"value": Color(0.019608, 0.07451, 0.121569, 1)
+}
+sky_ground={
+"type": "color",
+"value": Color(0.003922, 0.015686, 0.039216, 1)
+}
+fog_color={
+"type": "color",
+"value": Color(0.023529, 0.070588, 0.121569, 1)
+}
+elem_a={
+"type": "color",
+"value": Color(0.121569, 0.427451, 1, 1)
+}
+elem_b={
+"type": "color",
+"value": Color(0.74902, 0.909804, 1, 1)
+}
