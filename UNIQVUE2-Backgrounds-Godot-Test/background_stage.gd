@@ -211,6 +211,32 @@ func active_root() -> Node:
 	return _roots[_active]
 
 
+# Index der gerade aktiven Szene in SCENES (fuer den Sequencer).
+func current_scene_index() -> int:
+	return _scene_idx
+
+
+# Wurzel-Knotenname von SCENES[idx], OHNE die Szene zu instanziieren (SceneState ist
+# billig). Entspricht active_scene_key() der laufenden Szene -> stabiler Schluessel,
+# ueber den der Sequencer ein Preset auf seine Szene abbildet.
+func scene_key_for_index(idx: int) -> String:
+	if idx < 0 or idx >= SCENES.size():
+		return ""
+	var ps := load(SCENES[idx]) as PackedScene
+	if ps == null:
+		return ""
+	var st := ps.get_state()
+	return st.get_node_name(0) if st.get_node_count() > 0 else ""
+
+
+# Index der Szene mit diesem Wurzel-Namen (-1, wenn keine passt).
+func scene_index_for_key(key: String) -> int:
+	for i in range(SCENES.size()):
+		if scene_key_for_index(i) == key:
+			return i
+	return -1
+
+
 # Textur des fertig komponierten + getonemappten Master-Bildes (fuer die
 # Multi-Window-Vorschau). Vignette/Grain liegen erst im _final-Overlay und damit
 # bewusst NICHT in der Wand-Vorschau (sonst Vignette pro Einzelschirm).
