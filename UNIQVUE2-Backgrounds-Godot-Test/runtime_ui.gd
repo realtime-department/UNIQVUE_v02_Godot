@@ -28,6 +28,8 @@ const POST_PARAMS := [
 	["glow_hdr_threshold", 0.0, 2.0, 0.01],
 ]
 
+const SHAPE_NAMES := ["Dot", "Ring", "Square", "Star", "Cross"]
+
 var _panel: PanelContainer
 var _title: Label
 var _rows: VBoxContainer
@@ -41,6 +43,10 @@ var _style_swatches: Array = []
 var _seq_list: VBoxContainer
 var _seq_opt: OptionButton
 var _seq_status: Label
+# FPS-Anzeige.
+var _fps_label: Label
+# FPS-Aktualisierungs-Zaehler.
+var _fps_timer: float = 0.0
 
 
 func _ready() -> void:
@@ -163,6 +169,20 @@ func _build_chrome() -> void:
 	btn.pressed.connect(_on_transition)
 	outer.add_child(btn)
 
+	# FPS-Anzeige (ganz unten).
+	_fps_label = Label.new()
+	_fps_label.add_theme_font_size_override("font_size", 10)
+	_fps_label.add_theme_color_override("font_color", COL_MUTED)
+	_fps_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	outer.add_child(_fps_label)
+
+
+func _process(delta: float) -> void:
+	_fps_timer += delta
+	if _fps_timer >= 0.5 and _fps_label != null:
+		_fps_timer = 0.0
+		_fps_label.text = "%d fps" % Engine.get_frames_per_second()
+
 
 # An die Hintergrund-Buehne andocken und initial befuellen. Deferred, damit alle
 # Autoloads existieren und der erste Hintergrund schon geladen ist.
@@ -222,6 +242,29 @@ func _populate(root: Node) -> void:
 			if omat is ShaderMaterial:
 				_add_overlay_slider(post_body, omat, "vignette", 0.0, 1.0, 0.01)
 				_add_overlay_slider(post_body, omat, "grain", 0.0, 0.3, 0.005)
+		# Render-Aufloesung skalieren (½ / ¾ / 1×).
+		var res_row := HBoxContainer.new()
+		res_row.add_theme_constant_override("separation", 4)
+		var half_btn := _cfg_button("½")
+		var tq_btn   := _cfg_button("¾")
+		var full_btn := _cfg_button("1×")
+		res_row.add_child(half_btn)
+		res_row.add_child(tq_btn)
+		res_row.add_child(full_btn)
+		post_body.add_child(res_row)
+		half_btn.pressed.connect(func() -> void:
+			if stage != null:
+				var sz := get_viewport().get_visible_rect().size
+				stage.call("set_render_size_override",
+					Vector2i(int(sz.x * 0.5), int(sz.y * 0.5))))
+		tq_btn.pressed.connect(func() -> void:
+			if stage != null:
+				var sz := get_viewport().get_visible_rect().size
+				stage.call("set_render_size_override",
+					Vector2i(int(sz.x * 0.75), int(sz.y * 0.75))))
+		full_btn.pressed.connect(func() -> void:
+			if stage != null:
+				stage.call("clear_render_size_override"))
 
 	# Leere Sektionen entfernen (z.B. Material-Kopf, dessen Uniforms alle gruppiert
 	# sind -> der Kopf-Body bleibt leer).
@@ -312,13 +355,21 @@ func _add_shader_uniforms(parent: Node, node_name: String, mat: ShaderMaterial) 
 
 	var body: Node = _add_section(parent, node_name.to_upper())
 	var rid := mat.shader.get_rid()
+	var skip_group := false
 	for u in ulist:
 		var usage: int = int(u["usage"])
 		var uname: String = str(u["name"])
 		if uname == "":
 			continue
 		if usage & PROPERTY_USAGE_GROUP:
-			body = _add_section(parent, "  " + uname.to_upper())
+			# Gruppen mit fuehrendem '_' (z.B. _Sync) aus der UI ausblenden.
+			if uname.begins_with("_"):
+				skip_group = true
+			else:
+				skip_group = false
+				body = _add_section(parent, "  " + uname.to_upper())
+			continue
+		if skip_group:
 			continue
 		var utype: int = int(u["type"])
 		if not _supported(utype):
@@ -343,8 +394,12 @@ func _supported(t: int) -> bool:
 func _add_control_for(parent: Node, label: String, ptype: int, hint: int, hint_string: String, getter: Callable, setter: Callable) -> void:
 	match ptype:
 		TYPE_FLOAT, TYPE_INT:
-			var r := _parse_range(hint_string, ptype, getter)
-			_add_bound_slider(parent, label, r[0], r[1], r[2], getter, setter, ptype == TYPE_INT)
+			# 'shape'-Parameter: 5-Knopf-Picker statt Schieberegler.
+			if label == "shape" and ptype == TYPE_INT:
+				_add_shape_picker(parent, label, getter, setter)
+			else:
+				var r := _parse_range(hint_string, ptype, getter)
+				_add_bound_slider(parent, label, r[0], r[1], r[2], getter, setter, ptype == TYPE_INT)
 		TYPE_VECTOR2:
 			var r2 := _parse_range(hint_string, TYPE_FLOAT, getter)
 			_add_vec2(parent, label, r2[0], r2[1], r2[2], getter, setter)
@@ -442,7 +497,7 @@ func _section_text(title: String, collapsed: bool) -> String:
 	return ("▸  " if collapsed else "▾  ") + title
 
 
-func _make_row(parent: Node, name: String) -> HBoxContainer:
+func _make_row(parent: Node, name: String, on_reset: Callable = Callable()) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_theme_constant_override("separation", 6)
@@ -451,11 +506,15 @@ func _make_row(parent: Node, name: String) -> HBoxContainer:
 	name_lbl.text = name
 	name_lbl.add_theme_font_size_override("font_size", 11)
 	name_lbl.custom_minimum_size = Vector2(LABEL_WIDTH, 0)
-	# Feste Spaltenbreite: lange Namen abschneiden (Vollname im Tooltip),
-	# damit kein Label die Panelbreite ueber PANEL_WIDTH hinaus aufweitet.
 	name_lbl.clip_text = true
 	name_lbl.size_flags_horizontal = Control.SIZE_FILL
-	name_lbl.tooltip_text = name
+	name_lbl.tooltip_text = name + (("  (dbl-click: reset)") if on_reset.is_valid() else "")
+	if on_reset.is_valid():
+		name_lbl.mouse_filter = Control.MOUSE_FILTER_STOP
+		name_lbl.gui_input.connect(func(event: InputEvent) -> void:
+			if event is InputEventMouseButton and event.double_click and event.pressed \
+					and event.button_index == MOUSE_BUTTON_LEFT:
+				on_reset.call())
 	row.add_child(name_lbl)
 	return row
 
@@ -485,9 +544,14 @@ func _make_value_label(val: float, is_int: bool) -> Label:
 func _add_bound_slider(parent: Node, label: String, mn: float, mx: float, st: float, getter: Callable, setter: Callable, is_int: bool) -> void:
 	var cv: Variant = getter.call()
 	var val: float = float(cv) if cv != null else mn
-	var row := _make_row(parent, label)
+	var default_val := val
 	var s := _make_slider(mn, mx, st, val)
 	var v := _make_value_label(val, is_int)
+	var reset := func() -> void:
+		setter.call(int(round(default_val)) if is_int else default_val)
+		s.value = default_val
+		v.text = ("%d" % int(round(default_val))) if is_int else ("%.2f" % default_val)
+	var row := _make_row(parent, label, reset)
 	row.add_child(s)
 	row.add_child(v)
 	s.value_changed.connect(func(value: float) -> void:
@@ -523,6 +587,36 @@ func _add_overlay_slider(parent: Node, mat: ShaderMaterial, prop: String, mn: fl
 	s.value_changed.connect(func(value: float) -> void:
 		mat.set_shader_parameter(prop, value)
 		v.text = "%.2f" % value)
+
+
+func _add_shape_picker(parent: Node, label: String, getter: Callable, setter: Callable) -> void:
+	var cur := int(getter.call()) if getter.call() != null else 0
+	var row := _make_row(parent, label)
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 2)
+	hbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(hbox)
+	var btns: Array[Button] = []
+	for i in range(SHAPE_NAMES.size()):
+		var btn := Button.new()
+		btn.text = SHAPE_NAMES[i]
+		btn.toggle_mode = true
+		btn.button_pressed = i == cur
+		btn.focus_mode = Control.FOCUS_NONE
+		btn.add_theme_font_size_override("font_size", 10)
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.custom_minimum_size = Vector2(0, 20)
+		btn.add_theme_stylebox_override("pressed", _button_style(0.3))
+		btn.add_theme_stylebox_override("normal", _button_style(0.0))
+		btn.add_theme_stylebox_override("hover", _button_style(0.12))
+		btn.add_theme_stylebox_override("focus", _button_style(0.0))
+		var idx := i
+		btn.pressed.connect(func() -> void:
+			setter.call(idx)
+			for j in range(btns.size()):
+				btns[j].button_pressed = j == idx)
+		btns.append(btn)
+		hbox.add_child(btn)
 
 
 func _add_vec2(parent: Node, label: String, mn: float, mx: float, st: float, getter: Callable, setter: Callable) -> void:
@@ -890,12 +984,14 @@ func _build_sequencer_config(parent: Node) -> void:
 	_seq_list.add_theme_constant_override("separation", 4)
 	sc.add_child(_seq_list)
 
-	# Transport.
+	# Transport: ‹ PREV / PLAY / STOP / NEXT ›
 	var trow := HBoxContainer.new()
 	trow.add_theme_constant_override("separation", 4)
+	var prev_btn := _cfg_button("‹")
 	var play_btn := _cfg_button("PLAY")
 	var stop_btn := _cfg_button("STOP")
-	var next_btn := _cfg_button("NEXT")
+	var next_btn := _cfg_button("›")
+	trow.add_child(prev_btn)
 	trow.add_child(play_btn)
 	trow.add_child(stop_btn)
 	trow.add_child(next_btn)
@@ -906,6 +1002,29 @@ func _build_sequencer_config(parent: Node) -> void:
 	_seq_status.add_theme_color_override("font_color", COL_MUTED)
 	_seq_status.clip_text = true
 	body.add_child(_seq_status)
+
+	# JSON Export / Import.
+	var json_toggle := _cfg_button("JSON ▸")
+	body.add_child(json_toggle)
+	var json_edit := TextEdit.new()
+	json_edit.visible = false
+	json_edit.custom_minimum_size = Vector2(0, 110)
+	json_edit.add_theme_font_size_override("font_size", 10)
+	body.add_child(json_edit)
+	var json_row2 := HBoxContainer.new()
+	json_row2.add_theme_constant_override("separation", 4)
+	json_row2.visible = false
+	var export_btn := _cfg_button("EXPORT")
+	var import_btn := _cfg_button("IMPORT")
+	json_row2.add_child(export_btn)
+	json_row2.add_child(import_btn)
+	body.add_child(json_row2)
+	var json_open := false
+	json_toggle.pressed.connect(func() -> void:
+		json_open = !json_open
+		json_edit.visible = json_open
+		json_row2.visible = json_open
+		json_toggle.text = "JSON ▾" if json_open else "JSON ▸")
 
 	var refresh_opt := func() -> void:
 		_seq_opt.clear()
@@ -921,9 +1040,35 @@ func _build_sequencer_config(parent: Node) -> void:
 		var nm := _seq_opt.get_item_text(_seq_opt.selected)
 		seq.call("add_step", nm, 3.0, _stage_transition_time()))
 
+	prev_btn.pressed.connect(func() -> void: seq.call("prev"))
 	play_btn.pressed.connect(func() -> void: seq.call("play"))
 	stop_btn.pressed.connect(func() -> void: seq.call("stop"))
 	next_btn.pressed.connect(func() -> void: seq.call("next"))
+
+	export_btn.pressed.connect(func() -> void:
+		var arr: Array = []
+		for i in range(seq.call("step_count")):
+			arr.append(seq.call("get_step", i))
+		json_edit.text = JSON.stringify({"steps": arr}, "\t"))
+
+	import_btn.pressed.connect(func() -> void:
+		var txt := json_edit.text.strip_edges()
+		if txt.is_empty():
+			return
+		var parsed: Variant = JSON.parse_string(txt)
+		if not (parsed is Dictionary):
+			return
+		var steps_arr: Variant = parsed.get("steps", null)
+		if not (steps_arr is Array):
+			return
+		seq.call("clear")
+		for s in steps_arr:
+			if s is Dictionary:
+				seq.call("add_step",
+					str(s.get("preset", "")),
+					float(s.get("hold", 3.0)),
+					float(s.get("trans", 1.2)),
+					str(s.get("mode", "zoom"))))
 
 	# Dropdown bei Preset-Aenderung, Liste bei Playback-/Listen-Aenderung aktualisieren.
 	if not core.is_connected("presets_changed", refresh_opt):
@@ -999,10 +1144,25 @@ func _build_seq_step(parent: Node, seq: Node, i: int, cur: int, playing: bool) -
 	r2.add_child(trans_spin)
 	box.add_child(r2)
 
+	var r3 := HBoxContainer.new()
+	r3.add_theme_constant_override("separation", 4)
+	r3.add_child(_cfg_label("mode"))
+	var mode_opt := OptionButton.new()
+	mode_opt.add_item("Zoom")
+	mode_opt.add_item("Cross")
+	mode_opt.selected = 1 if str(step.get("mode", "zoom")) == "cross" else 0
+	mode_opt.add_theme_font_size_override("font_size", 11)
+	mode_opt.focus_mode = Control.FOCUS_NONE
+	mode_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	r3.add_child(mode_opt)
+	box.add_child(r3)
+
 	hold_spin.value_changed.connect(func(v: float) -> void:
 		seq.call("set_step_value", i, "hold", v))
 	trans_spin.value_changed.connect(func(v: float) -> void:
 		seq.call("set_step_value", i, "trans", v))
+	mode_opt.item_selected.connect(func(idx: int) -> void:
+		seq.call("set_step_value", i, "mode", "cross" if idx == 1 else "zoom"))
 	up.pressed.connect(func() -> void: seq.call("move_step", i, -1))
 	dn.pressed.connect(func() -> void: seq.call("move_step", i, 1))
 	dl.pressed.connect(func() -> void: seq.call("remove_step", i))

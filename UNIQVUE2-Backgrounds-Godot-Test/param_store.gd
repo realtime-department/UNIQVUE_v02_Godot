@@ -283,9 +283,14 @@ func _collect_shader_uniforms(node_name: String, mat: ShaderMaterial) -> void:
 	if mat == null or mat.shader == null:
 		return
 	var rid := mat.shader.get_rid()
+	var skip_group := false
 	for u in mat.shader.get_shader_uniform_list(true):
 		var usage: int = int(u["usage"])
 		if usage & PROPERTY_USAGE_GROUP:
+			# Gruppen mit fuehrendem '_' (z.B. _Sync) werden vollstaendig ignoriert.
+			skip_group = str(u["name"]).begins_with("_")
+			continue
+		if skip_group:
 			continue
 		var uname: String = str(u["name"])
 		if uname == "":
