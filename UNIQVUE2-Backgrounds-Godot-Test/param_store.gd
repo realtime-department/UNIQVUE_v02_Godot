@@ -112,6 +112,67 @@ func apply(values: Dictionary) -> void:
 		(e.setter as Callable).call(_coerce(int(e.type), values[key]))
 
 
+## Die gemerkten scene/*+mat/*-Werte einer Szene auf ihren frisch geladenen (noch nicht
+## aktiven) Root anwenden — von BackgroundStage WAEHREND der Transition aufgerufen, damit
+## die einkommende Ebene sofort im Zielzustand rendert statt von den .tscn-Defaults
+## hochzurampen. No-op, wenn die Szene noch nie besucht wurde (kein Cache-Eintrag).
+func preapply_to_scene(root: Node) -> void:
+	if root == null:
+		return
+	var key := str(root.name)
+	if _scene_cache.has(key):
+		apply_to_root(root, _scene_cache[key])
+
+
+## Snapshot direkt auf einen (ggf. noch NICHT aktiven) Szenen-Root anwenden, OHNE das
+## Register der aktiven Szene anzutasten. Gedacht fuer die einkommende Szene WAEHREND
+## einer Transition: scene/* + mat/* werden gegen 'root' aufgeloest, style/post/overlay
+## wirken ohnehin global. So zeigt die neue Ebene sofort den Zielzustand, statt von den
+## .tscn-Defaults hochzurampen. Schluessel ohne Treffer (andere Szene) werden ignoriert.
+func apply_to_root(root: Node, values: Dictionary) -> void:
+	if root == null:
+		return
+	var mats := {}
+	for entry in _find_shader_materials(root):
+		mats[str(entry[0])] = entry[1]
+	var st := get_node_or_null("/root/Style")
+	var penv := _post_env(root)
+	var omat := _overlay_mat()
+	for key in values:
+		var k := str(key)
+		var v: Variant = values[key]
+		if k.begins_with("style/"):
+			if st != null:
+				st.call("set_color", k.substr(6), v)
+		elif k.begins_with("post/"):
+			if penv != null:
+				penv.set(k.substr(5), float(v) if (v is float or v is int) else v)
+		elif k.begins_with("overlay/"):
+			if omat != null:
+				omat.set_shader_parameter(k.substr(8), v)
+		elif k.begins_with("scene/"):
+			var prop := k.substr(6)
+			root.set(prop, _coerce_like(root.get(prop), v))
+		elif k.begins_with("mat/"):
+			var rest := k.substr(4)
+			var slash := rest.find("/")
+			if slash > 0:
+				var mat: Variant = mats.get(rest.substr(0, slash))
+				if mat != null:
+					(mat as ShaderMaterial).set_shader_parameter(rest.substr(slash + 1), v)
+
+
+## Wert auf den Typ des aktuellen Property-Werts ziehen (kein Register verfuegbar).
+func _coerce_like(current: Variant, v: Variant) -> Variant:
+	if current is int and (v is float or v is int):
+		return int(round(float(v)))
+	if current is float and (v is float or v is int):
+		return float(v)
+	if current is bool:
+		return bool(v)
+	return v
+
+
 ## Typgerechte Interpolation zweier Snapshots -> gemorphtes {key: value}.
 ## Nur Schluessel, die in BEIDEN vorkommen, werden interpoliert; reine a-Keys
 ## bleiben (a), reine b-Keys kommen (b) hinzu — so geht beim Morph nichts verloren.
