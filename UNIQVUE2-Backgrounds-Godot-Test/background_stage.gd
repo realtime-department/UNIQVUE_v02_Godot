@@ -279,8 +279,9 @@ func transition() -> void:
 	transition_to((_scene_idx + 1) % SCENES.size())
 
 
-# Gezielt zu SCENES[target_idx] wechseln (z.B. fuer einen Szenen-Wahlschalter im UI).
-func transition_to(target_idx: int) -> void:
+# Gezielt zu SCENES[target_idx] wechseln. mode: "zoom" (Standard) oder "cross"
+# (reiner Crossfade ohne Zoom). Wird vom Sequencer mit per-Schritt-Modus aufgerufen.
+func transition_to(target_idx: int, mode: String = "zoom") -> void:
 	if _busy or SCENES.size() < 2:
 		return
 	if target_idx < 0 or target_idx >= SCENES.size() or target_idx == _scene_idx:
@@ -303,40 +304,39 @@ func transition_to(target_idx: int) -> void:
 	var in_mat := _mats[in_slot]
 	var out_mat := _mats[out_slot]
 
-	# Startzustand: neue Ebene voll herangezoomt/transparent, alte normal/opak.
-	# (Zeichenreihenfolge egal: additives Blending ist kommutativ.)
 	_vps[in_slot].render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	in_mat.set_shader_parameter("zoom", ZOOM_SPAN)
+	in_mat.set_shader_parameter("zoom", 1.0)
 	in_mat.set_shader_parameter("fade", 0.0)
 	in_rect.visible = true
 	out_mat.set_shader_parameter("zoom", 1.0)
 	out_mat.set_shader_parameter("fade", 1.0)
 	out_rect.visible = true
 
-	# (#3) Aufwaermframe: die frisch instanziierte Szene einmal rendern lassen,
-	# bevor eingeblendet wird -> kein Leer-/Weissblitz im ersten sichtbaren Frame.
 	await get_tree().process_frame
 
 	var dur := maxf(0.05, transition_time)
-	# (#1) Zoom (z-Position) symmetrisch: die alte Ebene beschleunigt in die Kamera
-	# (ease-in 1->ZOOM_SPAN), die neue setzt sich gespiegelt aus dem Zoom (ease-out
-	# ZOOM_SPAN->1). ease-in und ease-out sind exakte Zeit-Spiegel -> bei t=0.5 liegen
-	# beide auf demselben Zoom ("gleiche z-Position bei 50 %").
-	# Fades: sine ease-in-out, beide kreuzen exakt bei t=0.5 / 50 %, durchschreiten den
-	# Ueberblend-Bereich aber zuegig -> kein traeger Dissolve-Eindruck. Additives Blending
-	# (s. Shader) haelt die Luminanz konstant -> nie ein Schwarz-Einbruch in der Mitte.
 	var tw := create_tween().set_parallel(true)
-	tw.tween_property(out_mat, "shader_parameter/zoom", ZOOM_SPAN, dur) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	tw.tween_property(out_mat, "shader_parameter/fade", 0.0, dur) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	tw.tween_property(in_mat, "shader_parameter/zoom", 1.0, dur) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	tw.tween_property(in_mat, "shader_parameter/fade", 1.0, dur) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	# (#4) Sobald die alte Ebene praktisch unsichtbar ist (~90 % der Zeit; bei sine
-	# ease-in-out ist fade_out dort schon ~2-3 %), ihr Viewport schlafen legen -> spart
-	# GPU, statt bis zum Schluss eine fast unsichtbare Ebene doppelt zu rendern.
+
+	if mode == "cross":
+		# Reiner Crossfade: kein Zoom, nur Fade.
+		tw.tween_property(out_mat, "shader_parameter/fade", 0.0, dur) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		tw.tween_property(in_mat, "shader_parameter/fade", 1.0, dur) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	else:
+		# Zoom/Push-Modus: alte Ebene faehrt in die Kamera (ease-in 1->ZOOM_SPAN),
+		# neue setzt sich gespiegelt heraus (ease-out ZOOM_SPAN->1). Bei t=0.5 liegen
+		# beide auf demselben Zoom. Additives Blending haelt Luminanz konstant.
+		in_mat.set_shader_parameter("zoom", ZOOM_SPAN)
+		tw.tween_property(out_mat, "shader_parameter/zoom", ZOOM_SPAN, dur) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+		tw.tween_property(out_mat, "shader_parameter/fade", 0.0, dur) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		tw.tween_property(in_mat, "shader_parameter/zoom", 1.0, dur) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		tw.tween_property(in_mat, "shader_parameter/fade", 1.0, dur) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
 	tw.tween_callback(func() -> void:
 		_vps[out_slot].render_target_update_mode = SubViewport.UPDATE_DISABLED) \
 		.set_delay(dur * 0.9)

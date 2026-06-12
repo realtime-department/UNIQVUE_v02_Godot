@@ -1,19 +1,39 @@
 extends MeshInstance3D
-## Erzeugt ein statisches GRID_W x GRID_H Punkt-Gitter in der XZ-Ebene.
-## Das Gitter aendert sich nie - die gesamte Wellenbewegung passiert im Vertex-Shader.
-## Das ist der zentrale Effizienzpunkt: CPU baut das Gitter einmal, danach laeuft alles auf der GPU.
+## Erzeugt einmalig ein grid_w x grid_h Punkt-Gitter (XZ-Ebene) plus ein Linien-
+## Gitter (Wire) als Geschwisterknoten. Die gesamte Wellenbewegung geschieht im
+## Vertex-Shader — CPU baut die Geometrie nur einmal (oder bei Dichte-Aenderung).
+##
+## Dichte-Aenderung: particle_wave_root.gd ruft set_density() auf, wenn das
+## 'density'-Export aendert.
 
-@export var grid_w: int = 220          ## Punkte in X
-@export var grid_h: int = 220          ## Punkte in Z (Tiefe)
-@export var span_x: float = 60.0       ## Breite der Flaeche in Weltkoordinaten
-@export var span_z: float = 120.0      ## Tiefe der Flaeche (laeuft in die Ferne)
+var grid_w: int = 220
+var grid_h: int = 220
+var span_x: float = 320.0
+var span_z: float = 420.0
+
+var _verts: PackedVector3Array   # geteilt zwischen Punkt- und Linien-Gitter
+
 
 func _ready() -> void:
-	_build_grid()
+	_build()
 
-func _build_grid() -> void:
-	var verts := PackedVector3Array()
-	verts.resize(grid_w * grid_h)
+
+## Von particle_wave_root.density-Setter aufgerufen. Rebuild des Punkt- und
+## Linien-Gitters mit neuer Dichte.
+func set_density(n: int) -> void:
+	grid_w = clampi(n, 5, 340)
+	grid_h = grid_w
+	_build()
+
+
+func _build() -> void:
+	_build_points()
+	_build_wire()
+
+
+func _build_points() -> void:
+	_verts = PackedVector3Array()
+	_verts.resize(grid_w * grid_h)
 	var col_spacing := span_x / float(grid_w - 1)
 	var row_spacing := span_z / float(grid_h - 1)
 	# Per-point jitter breaks the perfectly regular lattice. A regular point grid
@@ -31,21 +51,61 @@ func _build_grid() -> void:
 			var jx := rng.randf_range(-0.5, 0.5) * col_spacing
 			var jz := rng.randf_range(-0.4, 0.4) * row_spacing
 			var fx := (float(xx) / float(grid_w - 1) - 0.5) * span_x + x_drift + jx
-			# Z von 0 (nah) nach span_z (fern), damit das Gitter in die Tiefe zieht
 			var fz := (float(zz) / float(grid_h - 1)) * span_z + jz
-			verts[i] = Vector3(fx, 0.0, fz)
+			_verts[i] = Vector3(fx, 0.0, fz)
 			i += 1
 
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-
+	arrays[Mesh.ARRAY_VERTEX] = _verts
 	var am := ArrayMesh.new()
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, arrays)
 	mesh = am
-
-	# grosszuegige AABB, damit das Gitter nicht faelschlich weggecullt wird,
-	# wenn der Vertex-Shader die Punkte nach oben/unten verschiebt
 	custom_aabb = AABB(Vector3(-span_x, -40.0, -5.0), Vector3(span_x * 2.0, 80.0, span_z + 10.0))
 
-	print("Particle Wave: %d Punkte erzeugt" % (grid_w * grid_h))
+
+func _build_wire() -> void:
+	if _verts.is_empty():
+		return
+	var parent := get_parent()
+	if parent == null:
+		return
+
+	# Wire-Knoten suchen oder anlegen.
+	var wire := parent.get_node_or_null("Wire") as MeshInstance3D
+	if wire == null:
+		wire = MeshInstance3D.new()
+		wire.name = "Wire"
+		var wshader: Shader = load("res://wave_wire.gdshader")
+		if wshader == null:
+			return
+		var wmat := ShaderMaterial.new()
+		wmat.shader = wshader
+		wmat.set_shader_parameter("wire_opacity", 0.35)
+		wire.material_override = wmat
+		parent.add_child(wire)
+
+	# Linien-Index-Puffer aufbauen (horizontale + vertikale Verbindungen).
+	var w := grid_w
+	var h := grid_h
+	var indices := PackedInt32Array()
+	indices.resize(2 * ((w - 1) * h + w * (h - 1)))
+	var out := 0
+	for z in range(h):
+		for x in range(w - 1):
+			indices[out] = z * w + x;       out += 1
+			indices[out] = z * w + x + 1;   out += 1
+	for z in range(h - 1):
+		for x in range(w):
+			indices[out] = z * w + x;       out += 1
+			indices[out] = (z + 1) * w + x; out += 1
+
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = _verts
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var wm := ArrayMesh.new()
+	wm.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
+	wire.mesh = wm
+	wire.custom_aabb = custom_aabb
+	print("Particle Wave: %d Punkte, %d Liniensegmente" % [grid_w * grid_h, indices.size() / 2])

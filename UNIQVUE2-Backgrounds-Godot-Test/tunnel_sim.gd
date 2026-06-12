@@ -19,8 +19,14 @@ extends Node3D
 # gelesen (guenstig) und CPU-seitig in die Vertex-Farben gemischt.
 
 @export_group("Appearance")
-@export_range(0.0, 1.0, 0.01) var opacity: float = 0.9
+@export_range(0.0, 1.5, 0.01) var opacity: float = 0.9
 @export_range(0.0, 3.0, 0.01) var head_glow: float = 1.0
+
+@export_group("Camera")
+@export_range(30.0, 110.0, 1.0) var cam_fov: float = 70.0
+@export_range(-180.0, 180.0, 1.0) var cam_roll: float = 0.0
+@export_range(-60.0, 60.0, 0.5) var cam_pitch: float = 0.0
+@export_range(-60.0, 60.0, 0.5) var cam_yaw: float = 0.0
 
 const NMAX: int = 6000
 const Z_NEAR: float = 2.0
@@ -64,12 +70,20 @@ func _spawn(i: int, spread: bool) -> void:
 
 func _process(delta: float) -> void:
 	_simulate(minf(delta, 0.05))
+	_update_camera()
+
+
+func _update_camera() -> void:
+	var target_x := tan(deg_to_rad(cam_yaw)) * 100.0
+	var target_y := tan(deg_to_rad(cam_pitch)) * -100.0
 	if drift_amount > 0.0:
-		_camera.look_at(
-			Vector3(sin(drift_angle) * drift_amount,
-				-cos(drift_angle) * drift_amount,
-				-100.0),
-			Vector3.UP)
+		target_x += sin(drift_angle) * drift_amount
+		target_y -= cos(drift_angle) * drift_amount
+	var roll_rad := deg_to_rad(cam_roll)
+	_camera.look_at(
+		Vector3(target_x, target_y, -100.0),
+		Vector3(sin(roll_rad), cos(roll_rad), 0.0))
+	_camera.fov = cam_fov
 
 func _simulate(dt: float) -> void:
 	_streak_mesh.clear_surfaces()
