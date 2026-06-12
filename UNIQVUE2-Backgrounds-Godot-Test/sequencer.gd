@@ -59,8 +59,8 @@ func get_step(i: int) -> Dictionary:
 	return _steps[i]
 
 
-func add_step(preset: String, hold: float, trans: float) -> void:
-	_steps.append({"preset": preset, "hold": hold, "trans": trans})
+func add_step(preset: String, hold: float, trans: float, mode: String = "zoom") -> void:
+	_steps.append({"preset": preset, "hold": hold, "trans": trans, "mode": mode})
 	_save()
 	state_changed.emit()
 
@@ -122,7 +122,7 @@ func stop() -> void:
 func next() -> void:
 	if _steps.is_empty():
 		return
-	_gen += 1   # evtl. laufende Wiedergabe abbrechen
+	_gen += 1
 	var gen := _gen
 	_playing = false
 	var nxt := (_idx + 1) % _steps.size()
@@ -131,6 +131,22 @@ func next() -> void:
 	if gen != _gen:
 		return
 	_idx = nxt
+	state_changed.emit()
+
+
+## Manuell einen Schritt zurueck.
+func prev() -> void:
+	if _steps.is_empty():
+		return
+	_gen += 1
+	var gen := _gen
+	_playing = false
+	var prv := (_idx - 1 + _steps.size()) % _steps.size()
+	var trans := maxf(0.0, float(_steps[_idx].get("trans", DEF_TRANS)))
+	await _go_to(prv, trans, gen)
+	if gen != _gen:
+		return
+	_idx = prv
 	state_changed.emit()
 
 
@@ -184,9 +200,10 @@ func _go_to(nxt: int, trans: float, gen: int) -> void:
 		return
 	var scene_key := str(doc.get("scene", ""))
 	var snap: Dictionary = doc.get("params", {})
+	var mode := str(_steps[nxt].get("mode", "zoom")) if nxt < _steps.size() else "zoom"
 	if scene_key != "" and scene_key != _cur_scene():
-		# Andere Szene: vorhandene Zoom-Transition, danach Preset-Werte setzen.
-		await _ensure_scene(scene_key, trans, gen)
+		# Andere Szene: Transition (Zoom oder Cross), danach Preset-Werte setzen.
+		await _ensure_scene(scene_key, trans, gen, mode)
 		if gen != _gen:
 			return
 		if _params != null:
@@ -213,8 +230,8 @@ func _morph(b: Dictionary, trans: float, gen: int) -> void:
 	_params.call("apply", b)   # exakt auf Ziel einrasten
 
 
-# Sicherstellen, dass die zum Preset getaggte Szene aktiv ist (sonst Zoom-Transition).
-func _ensure_scene(scene_key: String, trans: float, gen: int) -> void:
+# Sicherstellen, dass die zum Preset getaggte Szene aktiv ist.
+func _ensure_scene(scene_key: String, trans: float, gen: int, mode: String = "zoom") -> void:
 	if scene_key == "" or _stage == null:
 		return
 	if _cur_scene() == scene_key:
@@ -224,7 +241,7 @@ func _ensure_scene(scene_key: String, trans: float, gen: int) -> void:
 		return
 	if trans > 0.0:
 		_stage.set("transition_time", trans)
-	_stage.call("transition_to", idx)
+	_stage.call("transition_to", idx, mode)
 	await _stage.active_changed
 	# Ein Frame, damit ParamStore sein Register fuer die neue Szene neu gebaut hat,
 	# bevor wir die Preset-Werte anwenden.
@@ -268,4 +285,5 @@ func _load() -> void:
 				"preset": str(s.get("preset", "")),
 				"hold": float(s.get("hold", DEF_HOLD)),
 				"trans": float(s.get("trans", DEF_TRANS)),
+				"mode": str(s.get("mode", "zoom")),
 			})
