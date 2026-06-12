@@ -33,6 +33,8 @@ var _panel: PanelContainer
 var _title: Label
 var _rows: VBoxContainer
 var _dragging := false
+# Auf/Zu-Status klappbarer Sektionen, je Titel; ueberlebt den Szenen-Neuaufbau.
+var _collapsed := {}
 
 
 func _ready() -> void:
@@ -87,6 +89,9 @@ func _build_chrome() -> void:
 
 	# --- STAGE: virtuelle Display-Konfiguration (global, bleibt ueber Szenen) ---
 	_build_stage_config(outer)
+
+	# --- STYLE: zentrale Farbpalette (global, background-uebergreifend) ---
+	_build_style_config(outer)
 
 	# --- Scrollbarer Reglerbereich (Inhalt wird pro Szene neu befuellt) ---
 	var scroll := ScrollContainer.new()
@@ -187,9 +192,17 @@ func _populate(root: Node) -> void:
 	# 3) Feste POST-Parameter.
 	var env := _find_environment(root)
 	if env != null:
-		_add_section(_rows, "POST")
+		var post_body := _add_section(_rows, "POST")
 		for p in POST_PARAMS:
-			_add_env_slider(_rows, env, p[0], p[1], p[2], p[3])
+			_add_env_slider(post_body, env, p[0], p[1], p[2], p[3])
+
+	# Leere Sektionen entfernen (z.B. Material-Kopf, dessen Uniforms alle gruppiert
+	# sind -> der Kopf-Body bleibt leer).
+	for child in _rows.get_children():
+		if child.has_meta("section_body"):
+			var b: Node = child.get_meta("section_body")
+			if b.get_child_count() == 0:
+				child.queue_free()
 
 
 # --------------------------------------------------------------- Auto-Discovery
@@ -229,12 +242,13 @@ func _find_world_env(node: Node) -> WorldEnvironment:
 # @export-Variablen + @export_group-Header des Skripts auf 'obj' aufbauen.
 func _add_object_props(parent: Node, obj: Object) -> void:
 	var header_done := false
+	var body: Node = parent   # gefuellt, sobald die erste Sektion existiert
 	for prop in obj.get_property_list():
 		var usage: int = int(prop["usage"])
 		var pname: String = str(prop["name"])
 		if usage & PROPERTY_USAGE_GROUP:
 			if pname != "":
-				_add_section(parent, pname.to_upper())
+				body = _add_section(parent, pname.to_upper())
 				header_done = true
 			continue
 		if not (usage & PROPERTY_USAGE_SCRIPT_VARIABLE):
@@ -245,12 +259,12 @@ func _add_object_props(parent: Node, obj: Object) -> void:
 		if not _supported(ptype):
 			continue
 		if not header_done:
-			_add_section(parent, str(obj.name).to_upper())
+			body = _add_section(parent, str(obj.name).to_upper())
 			header_done = true
 		var key := pname
 		var getter := func() -> Variant: return obj.get(key)
 		var setter := func(v: Variant) -> void: obj.set(key, v)
-		_add_control_for(parent, pname, ptype, int(prop["hint"]), str(prop["hint_string"]), getter, setter)
+		_add_control_for(body, pname, ptype, int(prop["hint"]), str(prop["hint_string"]), getter, setter)
 
 
 # Shader-Uniforms eines Materials aufbauen (inkl. group_uniforms als Subheader).
@@ -269,7 +283,7 @@ func _add_shader_uniforms(parent: Node, node_name: String, mat: ShaderMaterial) 
 	if not has_real:
 		return
 
-	_add_section(parent, node_name.to_upper())
+	var body: Node = _add_section(parent, node_name.to_upper())
 	var rid := mat.shader.get_rid()
 	for u in ulist:
 		var usage: int = int(u["usage"])
@@ -277,7 +291,7 @@ func _add_shader_uniforms(parent: Node, node_name: String, mat: ShaderMaterial) 
 		if uname == "":
 			continue
 		if usage & PROPERTY_USAGE_GROUP:
-			_add_section(parent, "  " + uname.to_upper())
+			body = _add_section(parent, "  " + uname.to_upper())
 			continue
 		var utype: int = int(u["type"])
 		if not _supported(utype):
@@ -290,7 +304,7 @@ func _add_shader_uniforms(parent: Node, node_name: String, mat: ShaderMaterial) 
 			return v
 		var setter := func(v: Variant) -> void:
 			mat.set_shader_parameter(key, v)
-		_add_control_for(parent, uname, utype, int(u["hint"]), str(u["hint_string"]), getter, setter)
+		_add_control_for(body, uname, utype, int(u["hint"]), str(u["hint_string"]), getter, setter)
 
 
 func _supported(t: int) -> bool:
@@ -351,16 +365,54 @@ func _parse_range(hint_string: String, ptype: int, getter: Callable) -> Array:
 
 # ------------------------------------------------------------------ Bausteine
 
-func _add_section(parent: Node, title: String) -> void:
-	var l := Label.new()
-	l.text = title
-	l.add_theme_font_size_override("font_size", 10)
-	l.add_theme_color_override("font_color", COL_MUTED)
-	l.custom_minimum_size = Vector2(0, 18)
-	l.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
-	l.clip_text = true
-	l.tooltip_text = title
-	parent.add_child(l)
+# Klappbare Sektion: anklickbarer Header (Chevron + Titel) + Body-Container.
+# Gibt den BODY zurueck — alle Regler dieser Sektion gehoeren dort hinein.
+# Der Auf/Zu-Status wird je Titel in _collapsed gemerkt und ueberlebt den
+# Neuaufbau bei Szenenwechsel.
+func _add_section(parent: Node, title: String) -> VBoxContainer:
+	var group := VBoxContainer.new()
+	group.add_theme_constant_override("separation", 2)
+	parent.add_child(group)
+
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 3)
+
+	var collapsed := bool(_collapsed.get(title, false))
+
+	var header := Button.new()
+	header.flat = true
+	header.focus_mode = Control.FOCUS_NONE
+	header.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	header.add_theme_font_size_override("font_size", 10)
+	header.add_theme_color_override("font_color", COL_MUTED)
+	header.add_theme_color_override("font_hover_color", Color.WHITE)
+	header.add_theme_color_override("font_pressed_color", Color.WHITE)
+	var empty := StyleBoxEmpty.new()
+	header.add_theme_stylebox_override("normal", empty)
+	header.add_theme_stylebox_override("hover", empty)
+	header.add_theme_stylebox_override("pressed", empty)
+	header.add_theme_stylebox_override("focus", empty)
+	header.custom_minimum_size = Vector2(0, 18)
+	header.clip_text = true
+	header.tooltip_text = title
+	header.text = _section_text(title, collapsed)
+
+	group.add_child(header)
+	group.add_child(body)
+	body.visible = not collapsed
+	group.set_meta("section_body", body)
+
+	header.pressed.connect(func() -> void:
+		var now := body.visible          # sichtbar -> jetzt einklappen
+		body.visible = not now
+		_collapsed[title] = now
+		header.text = _section_text(title, now))
+
+	return body
+
+
+func _section_text(title: String, collapsed: bool) -> String:
+	return ("▸  " if collapsed else "▾  ") + title
 
 
 func _make_row(parent: Node, name: String) -> HBoxContainer:
@@ -545,7 +597,7 @@ func _build_stage_config(parent: Node) -> void:
 	if ds == null:
 		return
 
-	_add_section(parent, "STAGE")
+	var body := _add_section(parent, "STAGE")
 
 	# Raster: Spalten x Zeilen
 	var grid_row := HBoxContainer.new()
@@ -556,7 +608,7 @@ func _build_stage_config(parent: Node) -> void:
 	grid_row.add_child(_cfg_label("rows"))
 	var rows_spin := _cfg_spin(1, 32, 1, ds.get("rows"))
 	grid_row.add_child(rows_spin)
-	parent.add_child(grid_row)
+	body.add_child(grid_row)
 
 	# Pixel je Einzelschirm
 	var px_row := HBoxContainer.new()
@@ -567,14 +619,14 @@ func _build_stage_config(parent: Node) -> void:
 	px_row.add_child(_cfg_label("h"))
 	var h_spin := _cfg_spin(240, 16384, 1, ds.get("screen_h"))
 	px_row.add_child(h_spin)
-	parent.add_child(px_row)
+	body.add_child(px_row)
 
 	# Info: Raster, Seitenverhaeltnis, Gesamtaufloesung
 	var info := Label.new()
 	info.add_theme_font_size_override("font_size", 10)
 	info.add_theme_color_override("font_color", COL_MUTED)
 	info.clip_text = true
-	parent.add_child(info)
+	body.add_child(info)
 
 	var apply := func() -> void:
 		ds.call("configure", int(cols_spin.value), int(rows_spin.value),
@@ -597,15 +649,50 @@ func _build_stage_config(parent: Node) -> void:
 	btn_row.add_child(prev_btn)
 	btn_row.add_child(span_btn)
 	btn_row.add_child(win_btn)
-	parent.add_child(btn_row)
+	body.add_child(btn_row)
 	prev_btn.pressed.connect(func() -> void: ds.call("open_preview"))
 	span_btn.pressed.connect(func() -> void: ds.call("span_screens"))
 	win_btn.pressed.connect(func() -> void: ds.call("restore_window"))
 
 	# Vorschaufenster schliessen, ohne das Hauptfenster zu veraendern.
 	var close_btn := _cfg_button("CLOSE PREVIEW WINDOWS")
-	parent.add_child(close_btn)
+	body.add_child(close_btn)
 	close_btn.pressed.connect(func() -> void: ds.call("close_preview"))
+
+
+## Globaler STYLE-Bereich: die 8 Palettenfarben als gestapelte Swatch-Zeilen
+## (Name links, breiter Farbbalken rechts), in zwei beschriftete Gruppen geteilt.
+## Reihenfolge der Gradient-Stops von oben (Zenit) nach unten (Boden) — spiegelt
+## den tatsaechlichen Himmelsverlauf. Steuert das Style-Autoload, das die Werte in
+## globale Shader-Uniforms spiegelt. Bleibt ueber alle Szenen bestehen.
+func _build_style_config(parent: Node) -> void:
+	var st := get_node_or_null("/root/Style")
+	if st == null:
+		return
+
+	var grad_body := _add_section(parent, "STYLE · GRADIENT")
+	for pair in [
+		["sky_zenith", "zenith"], ["sky_mid", "sky"], ["sky_horizon", "horizon"],
+		["sky_ground_mid", "grnd-mid"], ["sky_ground", "ground"],
+	]:
+		_add_style_swatch(grad_body, st, str(pair[0]), str(pair[1]))
+
+	var elem_body := _add_section(parent, "STYLE · ELEMENT")
+	for pair in [["fog_color", "fog"], ["elem_a", "elem A"], ["elem_b", "elem B"]]:
+		_add_style_swatch(elem_body, st, str(pair[0]), str(pair[1]))
+
+
+# Eine Palettenzeile: Name (feste Spalte) + vollbreiter ColorPickerButton.
+func _add_style_swatch(parent: Node, st: Node, key: String, label: String) -> void:
+	var row := _make_row(parent, label)
+	var btn := ColorPickerButton.new()
+	btn.color = st.call("get_color", key)
+	btn.edit_alpha = false
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.custom_minimum_size = Vector2(0, 18)
+	btn.color_changed.connect(func(c: Color) -> void:
+		st.call("set_color", key, c))
+	row.add_child(btn)
 
 
 func _cfg_label(text: String) -> Label:
