@@ -207,10 +207,13 @@ Studio-Parität-Erweiterung darüber.
   ausstehend, s. §8.)*
 - **S1 — Globaler Composite-Post (G2).** Master-Composite-Stage (Variante A) mit
   einheitlichem Bloom/Tonemap/Vignette/Grain; im Panel als POST-Zone. *Braucht D1.*
-- **S2 — Param-Snapshot/Apply-Schicht (G4-Teil).** Stabile Param-Map über die
-  aktive Szene (getter/setter aus `runtime_ui.gd` wiederverwenden). *Braucht D4.*
-- **S3 — BgCore-Statemodell + Preset-I/O nach `user://` (G4-Teil).**
-  resolve/diff/interpolate/summarize; JSON Save/Load. *Faltet improvementPlan 1.3 ein.*
+- **S2 — Param-Snapshot/Apply-Schicht (G4-Teil).** ✅ `param_store.gd` (ParamStore-
+  Autoload): flaches benanntes Register über die aktive Szene; `capture/apply/
+  lerp_values`. D4 entschieden (s. §5, §8).
+- **S3 — BgCore-Statemodell + Preset-I/O nach `user://` (G4-Teil).** ✅ `bg_core.gd`
+  (BgCore-Autoload): benannte Presets als JSON in `user://presets/`; diff/resolve/
+  summarize für S4; PRESET-Sektion im Panel (SAVE/LOAD/DEL). *Faltet improvementPlan
+  1.3 ein. Details §8.*
 - **S4 — Sequencer-UI + Playback (G4/G5).** States-Liste, Root+Deltas, Hold/Dur/
   Transition, Reorder, Play; Param-Morph (gleiche Szene) + Transition (Szenenwechsel).
   *Faltet improvementPlan 1.2 (Auto-Cycle) ein. Braucht D3.*
@@ -233,9 +236,10 @@ Farb-Zone hätten; S2 liefert die Param-Map, ohne die S4 nichts morphen kann.
 - **D3 — Sequencer-Heimat:** Erweiterung von `runtime_ui.gd`/`background_stage.gd`
   vs. neues `Sequencer`-Autoload. → Empfehlung neues Autoload (Trennung der Belange,
   Reihenfolge: nach BackgroundStage). **Offen — vor S4.**
-- **D4 — Param-Identität:** Schlüsselschema für die Param-Map (`node_name::uniform`
-  vs. globaler Index). Muss über Reload/Szenenwechsel stabil sein, sonst brechen
-  gespeicherte States. **Offen — vor S2.**
+- **D4 — Param-Identität:** ✅ **Entschieden: flaches benanntes Schema** (in S2
+  umgesetzt): `style/<key>`, `scene/<export>`, `mat/<Node>/<uniform>`, `post/<prop>`,
+  `overlay/<prop>`. Stabil über Reload/Szenenwechsel; `apply()` überspringt
+  Schlüssel, die in der aktiven Szene nicht aufgelöst werden (sauberer Szenenwechsel).
 
 ## 6. Risiken / Hinweise
 
@@ -264,8 +268,13 @@ Farb-Zone hätten; S2 liefert die Param-Map, ohne die S4 nichts morphen kann.
 
 ## 7. Nächster Schritt
 
-S0 ist umgesetzt. Vor S1 die Entscheidung **D1** treffen (Composite-Post Variante A
-vs. B). Empfehlung: Variante A.
+S0–S3 sind umgesetzt. Als Nächstes **S4** (Sequencer-UI + Playback): States-Liste auf
+Basis von BgCore-Presets (Root+Deltas via `diff`/`resolve`), Hold/Dur/Transition,
+Param-Morph (gleiche Szene, via `ParamStore.lerp_values`) + Transition (Szenenwechsel).
+Davor **D3** klären (Sequencer-Heimat → Empfehlung neues `Sequencer`-Autoload). S4
+sollte LOAD szenenbewusst machen (zur getaggten Szene wechseln, dann anwenden) und
+erwägen, UI + ParamStore-Enumeration auf EIN Register zu vereinen. Optional vorab
+**M0** (`particle_wave.tscn` `unique_id=`-Sanierung).
 
 ---
 
@@ -303,3 +312,91 @@ vs. B). Empfehlung: Variante A.
 **ext_resource ohne `uid=`** für `gradient_sky.gdshader` in beiden `.tscn` — Godot
 vergibt die uid beim ersten Speichern (vermeidet uid-Mismatch); `.uid`-Dateien für
 `style.gd`/`gradient_sky.gdshader` legt der Import an.
+
+### S1 — Globaler Composite-Post *(erledigt; Editor-Verifikation in 4.6.1 offen)*
+
+D1 = **Variante A**. `background_stage.gd`: neuer Master-SubViewport (`use_hdr_2d`,
+`own_world_3d`, `UPDATE_ALWAYS`) hält den schwarzen Fond + beide Zoom/Fade-Layer-
+Rects; ein darin liegendes `WorldEnvironment` macht **nur** Glow/Bloom (`BG_CANVAS`,
+additiv, `glow_hdr_threshold` 0.7). Ein finaler On-Screen-`TextureRect` (`_final`)
+sampelt die HDR-Master-Textur und fährt **ACES-Tonemap → Vignette → Grain** in einem
+`canvas_item`-OVERLAY_SHADER (Tonemap bewusst NICHT in der Env, da kamera-loses 2D
+nur das Glow zuverlässig bekommt). Beide Szenen-`.tscn`-Envs auf Gradient-Sky reduziert
+(`tonemap_mode = 0`, kein Glow/Adjustments). Neu: `active_texture()` → Master,
+`post_environment()`/`post_overlay()`-Accessoren. `runtime_ui.gd` POST-Sektion zeigt
+auf die Master-Env + Vignette/Grain-Slider (`_add_overlay_slider`); `POST_PARAMS` auf
+Glow reduziert. Grenze: Szenen-SubViewports sind LDR RGBA8 → Emission >1 klemmt beim
+Szene→Master-Hop; Bloom triggert über `glow_hdr_threshold`; Stellschrauben =
+`glow_hdr_threshold` / `glow_strength`.
+
+### S2 — Param-Snapshot/Apply-Schicht *(erledigt; Editor-Verifikation in 4.6.1 offen)*
+
+**Neue Datei**
+- `param_store.gd` — Autoload **ParamStore** (nach `BackgroundStage`, vor `RuntimeUI`).
+  Baut bei jedem `active_changed` ein flaches Register `{key → {key,type,getter,setter}}`
+  aus den 5 Quellen (D4-Schema): `style/<key>`, `scene/<export>`, `mat/<Node>/<uniform>`,
+  `post/<prop>`, `overlay/<prop>`. API: `capture() → Dictionary`, `apply(values)`
+  (überspringt nicht auflösbare Keys), `lerp_values(a,b,t)` + `apply_lerp` (typgerecht:
+  `lerpf` / `Color.lerp` / `Vector*.lerp` / bool@0.5), `active_scene_key()`,
+  `keys()`/`has_key()`. Snapshot = reines `{key: value}`.
+- **In-Session-Persistenz über TRANSITION:** `_scene_cache` (Szenenname → scene/*+mat/*).
+  Bei `active_changed` werden die szenenspezifischen Werte der verlassenen Szene
+  gesichert und beim Wiederbetreten erneut angewandt — sonst setzt `background_stage`
+  sie beim Neu-Instanziieren auf die `.tscn`-Defaults zurück. (style/post/overlay
+  überleben ohnehin, da Autoload/Master.) Hält nur zur Laufzeit; persistente
+  benannte Presets auf Platte = S3.
+
+**Geänderte Datei**
+- `project.godot` — `ParamStore="*res://param_store.gd"` zwischen `BackgroundStage`
+  und `RuntimeUI`.
+
+**Hinweis (Drift-Risiko):** Die Enumerations-Logik spiegelt `runtime_ui.gd` (gleiche
+5 Quellen, gleiche Typ-Heuristik). S4 sollte erwägen, UI + Store auf EIN Register zu
+vereinen, statt zwei parallele Traversierungen zu pflegen.
+
+**Verifikation in Godot 4.6.1 (vom Nutzer durchzuführen)**
+1. Projekt lädt fehlerfrei (ParamStore parst, keine Lambda-/Parser-Fehler).
+2. Smoke-Test in einem beliebigen Skript/Console:
+   `var s = ParamStore.capture()` → enthält `style/sky_zenith`, `post/glow_intensity`,
+   `overlay/vignette` + szenenspezifische `scene/*` / `mat/*`-Keys.
+3. `ParamStore.apply(s)` nach Slider-Verstellung → Werte springen zurück.
+4. Nach `TRANSITION` zur anderen Szene: ein vorher gefangener Snapshot via `apply()`
+   setzt nur die geteilten `style/*` + `post/*` + `overlay/*`, ohne Fehler.
+
+### S3 — BgCore-Statemodell + Preset-I/O *(erledigt; Editor-Verifikation in 4.6.1 offen)*
+
+**Neue Datei**
+- `bg_core.gd` — Autoload **BgCore** (nach `ParamStore`, vor `RuntimeUI`). Speichert
+  benannte Presets als JSON in `user://presets/<name>.json`; Dokument =
+  `{version, scene, params}`. Werte JSON-sicher kodiert: `Color → {_t:"col",v:[r,g,b,a]}`,
+  `Vector2/3 → {_t:"v2"/"v3",...}`, Zahlen/Bool nativ; beim Lesen dekodiert, `apply`
+  zieht sie über die Register-Typen zurecht (`_coerce`). API: `save_current(name)` /
+  `save_snapshot(name,snap)`, `load_preset(name)` (liest **und** wendet an, gibt
+  Snapshot), `read_preset` / `read_doc`, `delete_preset`, `list_presets`, `has_preset`.
+  Zustands-Utilities für S4: `diff(base,other)` (sparse Delta = Root+Delta-Modell),
+  `resolve(root,delta)`, `summarize`; Interpolation liefert `ParamStore.lerp_values`.
+  `presets_changed`-Signal. Dateinamen via `String.validate_filename()` gesäubert.
+
+**Geänderte Dateien**
+- `project.godot` — `BgCore="*res://bg_core.gd"` zwischen `ParamStore` und `RuntimeUI`.
+- `runtime_ui.gd` — persistente **PRESET**-Sektion (`_build_preset_config`, im
+  `outer`-Container, einmalig gebaut): `OptionButton`-Dropdown der Presets +
+  Namens-`LineEdit` + **SAVE/LOAD/DEL** + Status-Label. Dropdown-Auswahl füllt das
+  Namensfeld; `presets_changed` → Liste neu aufbauen. Nach **LOAD** gleicht
+  `_after_preset_loaded()` die UI an die geänderten Werte an: `_sync_style_swatches()`
+  (Swatches in `_style_swatches` gemerkt, `set_block_signals` beim Reread → keine
+  Rückkopplung) + `_populate(root)` baut scene/mat/post/overlay-Regler neu.
+
+**Bewusste Grenze (→ S4):** **LOAD** wendet auf die AKTUELLE Szene an; szenenspezifische
+Keys einer anderen Szene werden übersprungen. Es wird (noch) NICHT automatisch zur im
+Preset getaggten Szene gewechselt — das übernimmt der Sequencer (S4), der Szene +
+Parameter koordiniert. Der `scene`-Tag wird dafür bereits mitgespeichert.
+
+**Verifikation in Godot 4.6.1 (vom Nutzer durchzuführen)**
+1. Projekt lädt fehlerfrei (BgCore parst, `user://presets/` wird angelegt).
+2. Regler/Farben verstellen → Name eintippen → **SAVE**: Datei in `user://presets/`
+   erscheint, Dropdown listet sie.
+3. Andere Werte einstellen → Preset im Dropdown wählen → **LOAD**: Werte UND
+   Slider/Swatches springen auf den gespeicherten Stand; Render aktualisiert.
+4. **DEL** entfernt das Preset aus Liste und Ordner.
+5. App neu starten → Preset weiterhin in der Liste, **LOAD** stellt es wieder her.
