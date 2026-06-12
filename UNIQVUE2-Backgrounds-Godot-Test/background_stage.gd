@@ -62,7 +62,7 @@ void fragment() {
 # Vignette und Grain.
 const OVERLAY_SHADER := "shader_type canvas_item;
 uniform float vignette : hint_range(0.0, 1.0) = 0.5;
-uniform float grain : hint_range(0.0, 0.3) = 0.04;
+uniform float grain : hint_range(0.0, 0.3) = 0.0;
 vec3 aces(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void fragment() {
@@ -163,7 +163,7 @@ func _ready() -> void:
 	osh.code = OVERLAY_SHADER
 	_overlay_mat.shader = osh
 	_overlay_mat.set_shader_parameter("vignette", 0.5)
-	_overlay_mat.set_shader_parameter("grain", 0.04)
+	_overlay_mat.set_shader_parameter("grain", 0.0)
 
 	_final = TextureRect.new()
 	_final.texture = _master.get_texture()
