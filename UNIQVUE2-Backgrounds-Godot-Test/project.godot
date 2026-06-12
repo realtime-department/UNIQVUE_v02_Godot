@@ -23,6 +23,7 @@ DisplaySetup="*res://display_setup.gd"
 BackgroundStage="*res://background_stage.gd"
 ParamStore="*res://param_store.gd"
 BgCore="*res://bg_core.gd"
+Sequencer="*res://sequencer.gd"
 RuntimeUI="*res://runtime_ui.gd"
 
 [display]
