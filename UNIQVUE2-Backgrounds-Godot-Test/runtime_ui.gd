@@ -19,14 +19,13 @@ const LABEL_WIDTH := 116.0
 const VALUE_WIDTH := 50.0
 const COL_MUTED := Color(0.62, 0.66, 0.72)
 
-# Feste Environment-Post-Parameter: [property, min, max, step]
+# Globale Post-Parameter (Master-Environment, nur Bloom/Glow): [property, min, max, step].
+# Tonemap/Vignette/Grain liegen im Overlay-Material (s. _add_overlay_slider), nicht hier.
 const POST_PARAMS := [
 	["glow_intensity", 0.0, 3.0, 0.01],
 	["glow_strength", 0.0, 3.0, 0.01],
 	["glow_bloom", 0.0, 1.0, 0.01],
-	["glow_hdr_threshold", 0.0, 1.0, 0.01],
-	["adjustment_contrast", 0.5, 2.0, 0.01],
-	["adjustment_saturation", 0.0, 2.0, 0.01],
+	["glow_hdr_threshold", 0.0, 2.0, 0.01],
 ]
 
 var _panel: PanelContainer
@@ -189,12 +188,27 @@ func _populate(root: Node) -> void:
 		var mat: ShaderMaterial = entry[1]
 		_add_shader_uniforms(_rows, node_name, mat)
 
-	# 3) Feste POST-Parameter.
-	var env := _find_environment(root)
-	if env != null:
+	# 3) Globale POST-Parameter. Seit S1 wirkt Post zentral ueber den Master-
+	#    Composite (BackgroundStage.post_environment); faellt auf die Szenen-Env
+	#    zurueck, falls (noch) kein Master vorhanden ist.
+	var stage := get_node_or_null("/root/BackgroundStage")
+	var penv: Environment = null
+	if stage != null:
+		var pe: Variant = stage.call("post_environment")
+		if pe is Environment:
+			penv = pe
+	if penv == null:
+		penv = _find_environment(root)
+	if penv != null:
 		var post_body := _add_section(_rows, "POST")
 		for p in POST_PARAMS:
-			_add_env_slider(post_body, env, p[0], p[1], p[2], p[3])
+			_add_env_slider(post_body, penv, p[0], p[1], p[2], p[3])
+		# Vignette/Grain liegen im Overlay-Material des Master, nicht im Environment.
+		if stage != null:
+			var omat: Variant = stage.call("post_overlay")
+			if omat is ShaderMaterial:
+				_add_overlay_slider(post_body, omat, "vignette", 0.0, 1.0, 0.01)
+				_add_overlay_slider(post_body, omat, "grain", 0.0, 0.3, 0.005)
 
 	# Leere Sektionen entfernen (z.B. Material-Kopf, dessen Uniforms alle gruppiert
 	# sind -> der Kopf-Body bleibt leer).
@@ -481,6 +495,20 @@ func _add_env_slider(parent: Node, env: Environment, prop: String, mn: float, mx
 	row.add_child(v)
 	s.value_changed.connect(func(value: float) -> void:
 		env.set(prop, value)
+		v.text = "%.2f" % value)
+
+
+# Slider fuer einen Shader-Parameter des Master-Overlay-Materials (Vignette/Grain).
+func _add_overlay_slider(parent: Node, mat: ShaderMaterial, prop: String, mn: float, mx: float, st: float) -> void:
+	var cur: Variant = mat.get_shader_parameter(prop)
+	var val: float = float(cur) if cur != null else mn
+	var row := _make_row(parent, prop)
+	var s := _make_slider(mn, mx, st, val)
+	var v := _make_value_label(val, false)
+	row.add_child(s)
+	row.add_child(v)
+	s.value_changed.connect(func(value: float) -> void:
+		mat.set_shader_parameter(prop, value)
 		v.text = "%.2f" % value)
 
 
