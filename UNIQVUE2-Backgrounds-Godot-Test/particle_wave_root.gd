@@ -13,9 +13,9 @@ extends Node3D
 				gb.call("set_density", v)
 
 @export_group("Camera")
-@export_range(0.5, 40.0, 0.5) var cam_height: float = 7.0
+@export_range(0.5, 40.0, 0.5) var cam_height: float = 3.5
 @export_range(20.0, 160.0, 1.0) var cam_dist: float = 70.0
-@export_range(-10.0, 30.0, 0.5) var cam_pitch: float = 5.0
+@export_range(-20.0, 20.0, 0.5) var cam_pitch: float = 5.0  # Y-coord of look target (not angle)
 @export_range(-40.0, 40.0, 0.5) var cam_yaw: float = 0.0
 @export_range(25.0, 90.0, 1.0) var cam_fov: float = 60.0
 
@@ -36,10 +36,8 @@ func _update_camera() -> void:
 		return
 	_camera.fov = cam_fov
 	_camera.position = Vector3(cam_yaw, cam_height, -cam_dist)
-	# look_at einen festen Punkt im Gitter; cam_pitch kippt den Blickwinkel.
-	var look_z := cam_dist * 0.5 + 20.0
-	var look_y := -tan(deg_to_rad(cam_pitch)) * look_z
-	_camera.look_at(Vector3(0.0, look_y, look_z), Vector3.UP)
+	# cam_pitch ist die Y-Koordinate des Blickziels (wie HTML: CAM_LOOK.set(camYaw*0.3, camPitch, -60)).
+	_camera.look_at(Vector3(cam_yaw * 0.3, cam_pitch, 60.0), Vector3.UP)
 
 
 ## Geteilte Wellen-Parameter vom Grid-Material auf das Wire-Material uebertragen,

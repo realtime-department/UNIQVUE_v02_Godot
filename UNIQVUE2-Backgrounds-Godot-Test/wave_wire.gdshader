@@ -28,8 +28,8 @@ varying float v_fade;
 
 float field(vec2 q) {
 	float t = TIME * speed;
-	float s = freq * wavelength;
-	q += dir * (t * flow);
+	float s = 1.0 / max(0.2, wavelength);
+	q += dir * (TIME * flow * 8.0);
 	vec2 w = vec2(sin(q.y * 0.6 + t) * 0.5, cos(q.x * 0.5 - t) * 0.5) * warp;
 	q += w;
 	float h = 0.0;
@@ -43,7 +43,8 @@ float field(vec2 q) {
 void vertex() {
 	vec3 pos = VERTEX;
 	pos.x = mix(pos.x, -pos.x, step(0.5, mirror));
-	float h = field(pos.xz);
+	vec2 q = pos.xz * freq * 6.0;
+	float h = field(q);
 	pos.y = h * amp + y_off;
 	VERTEX = pos;
 	v_h = clamp(h * 0.5 + 0.5, 0.0, 1.0);
@@ -53,8 +54,10 @@ void vertex() {
 }
 
 void fragment() {
-	vec3 col = mix(fog_color.rgb, elem_a.rgb, smoothstep(0.0, 0.55, v_h));
-	col = mix(col, elem_b.rgb, smoothstep(0.55, 0.95, v_h));
+	// HTML wire fragment: mix from elem_a to elem_b (no fog_color).
+	vec3 col = mix(elem_a.rgb, elem_b.rgb, smoothstep(0.5, 0.95, v_h));
+	float crest = smoothstep(0.45, 0.85, v_h);
+	col += elem_b.rgb * crest * wire_opacity * 1.5;
 	ALBEDO = col;
 	EMISSION = col;
 	ALPHA = v_fade * wire_opacity;
