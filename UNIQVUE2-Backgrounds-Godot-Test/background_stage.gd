@@ -28,6 +28,11 @@ signal active_changed(root: Node)
 const SCENES := [
 	"res://tunnel_wave.tscn",
 	"res://particle_wave.tscn",
+	"res://stripes.tscn",
+	"res://lines.tscn",
+	"res://plexus.tscn",
+	"res://cubic.tscn",
+	"res://structure.tscn",
 ]
 const TRANSITION_TIME := 1.2   # Default; zur Laufzeit ueber transition_time anpassbar.
 const ZOOM_SPAN := 2.0   # Symmetrischer Zoom-Hub: alt 1->ZOOM_SPAN, neu ZOOM_SPAN->1.

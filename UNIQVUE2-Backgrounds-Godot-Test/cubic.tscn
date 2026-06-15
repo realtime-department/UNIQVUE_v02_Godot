@@ -1,0 +1,55 @@
+[gd_scene format=3 uid="uid://cgcubic00001"]
+
+[ext_resource type="Script" path="res://cubic_sim.gd" id="1_sim"]
+[ext_resource type="Shader" path="res://cubic_surf.gdshader" id="2_surf"]
+[ext_resource type="Shader" path="res://cubic_line.gdshader" id="3_line"]
+[ext_resource type="Shader" path="res://cubic_part.gdshader" id="4_part"]
+[ext_resource type="Shader" path="res://gradient_sky.gdshader" id="5_sky"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_sky"]
+shader = ExtResource("5_sky")
+
+[sub_resource type="Sky" id="Sky_grad"]
+sky_material = SubResource("ShaderMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_cubic"]
+background_mode = 2
+sky = SubResource("Sky_grad")
+ambient_light_source = 0
+reflected_light_source = 0
+tonemap_mode = 0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_surf"]
+render_priority = 0
+shader = ExtResource("2_surf")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_line"]
+render_priority = 0
+shader = ExtResource("3_line")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_part"]
+render_priority = 0
+shader = ExtResource("4_part")
+
+[node name="Cubic" type="Node3D"]
+script = ExtResource("1_sim")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_cubic")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+fov = 62.0
+near = 0.1
+far = 2400.0
+
+[node name="SurfMesh" type="MultiMeshInstance3D" parent="."]
+cast_shadow = 0
+material_override = SubResource("ShaderMaterial_surf")
+
+[node name="LineMesh" type="MultiMeshInstance3D" parent="."]
+cast_shadow = 0
+material_override = SubResource("ShaderMaterial_line")
+
+[node name="Points" type="MeshInstance3D" parent="."]
+material_override = SubResource("ShaderMaterial_part")
