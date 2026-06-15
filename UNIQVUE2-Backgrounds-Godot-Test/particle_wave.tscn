@@ -39,19 +39,19 @@ shader_parameter/glow_boost = 0.15
 shader_parameter/z_near = 6.0
 shader_parameter/z_far = 140.0
 
-[node name="ParticleWave" type="Node3D" unique_id=523657003]
+[node name="ParticleWave" type="Node3D"]
 script = ExtResource("4_root")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=131585124]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_post")
 
-[node name="Camera3D" type="Camera3D" parent="." unique_id=256866582]
+[node name="Camera3D" type="Camera3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.5, -70)
 attributes = SubResource("CameraAttributes_cam")
 fov = 60.0
 near = 0.1
 far = 300.0
 
-[node name="Grid" type="MeshInstance3D" parent="." unique_id=2094047886]
+[node name="Grid" type="MeshInstance3D" parent="."]
 material_override = SubResource("ShaderMaterial_wave")
 script = ExtResource("1_grid")
