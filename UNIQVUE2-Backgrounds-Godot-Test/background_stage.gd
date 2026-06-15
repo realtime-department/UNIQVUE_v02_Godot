@@ -34,6 +34,7 @@ const SCENES := [
 	"res://cubic.tscn",
 	"res://structure.tscn",
 ]
+const SCENE_LABELS := ["Tunnel", "Wave", "Stripes", "Lines", "Plexus", "Cubic", "Structure"]
 const TRANSITION_TIME := 1.2   # Default; zur Laufzeit ueber transition_time anpassbar.
 const ZOOM_SPAN := 2.0   # Symmetrischer Zoom-Hub: alt 1->ZOOM_SPAN, neu ZOOM_SPAN->1.
                          # Beide bleiben >= 1 -> stets volle Deckung (nie schwarze Raender).
@@ -86,6 +87,7 @@ var _rects: Array[TextureRect] = []
 var _mats: Array[ShaderMaterial] = []
 var _roots: Array[Node] = [null, null]
 var _bg: ColorRect
+var _blackout: ColorRect
 var _active := 0          # aktiver Slot (0/1)
 var _scene_idx := 0       # Index in SCENES, der gerade aktiv ist
 var _busy := false
@@ -180,6 +182,13 @@ func _ready() -> void:
 	_final.material = _overlay_mat
 	add_child(_final)
 
+	# Master blackout overlay — CanvasLayer child, drawn above _final but below RuntimeUI.
+	_blackout = ColorRect.new()
+	_blackout.color = Color(0.0, 0.0, 0.0, 0.0)
+	_blackout.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_blackout.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_blackout)
+
 	get_window().size_changed.connect(_on_window_resized)
 
 	# Ersten Hintergrund laden und aktiv schalten.
@@ -257,6 +266,15 @@ func post_environment() -> Environment:
 # Overlay-Material (Vignette/Grain) — vom RuntimeUI-Panel als POST-Regler genutzt.
 func post_overlay() -> ShaderMaterial:
 	return _overlay_mat
+
+
+## Master dim/blackout alpha (0=transparent, 1=fully black). For broadcast cuts.
+func set_blackout(alpha: float) -> void:
+	if _blackout != null:
+		_blackout.color.a = clampf(alpha, 0.0, 1.0)
+
+func get_blackout() -> float:
+	return _blackout.color.a if _blackout != null else 0.0
 
 
 # SubViewports unabhaengig von der Fenstergroesse in einer festen (Wand-)Aufloesung

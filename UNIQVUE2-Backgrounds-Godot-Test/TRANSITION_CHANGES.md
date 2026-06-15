@@ -17,7 +17,7 @@ a zoom/fade `canvas_item` shader.
 ### Easing of the motion (#1)
 - Old layer zoom: `TRANS_SINE` / `EASE_IN` (accelerates into the camera).
 - New layer zoom: `TRANS_SINE` / `EASE_OUT` (rises from depth, settles softly).
-- Both fades kept `TRANS_LINEAR` for a clean, even cross-dissolve.
+- Both fades use `TRANS_SINE` / `EASE_IN_OUT` for a smooth sinusoidal cross-dissolve.
 
 ### Transparent shader edges (#2)
 - Out-of-bounds UVs (when `zoom < 1`) are made transparent instead of clamped,

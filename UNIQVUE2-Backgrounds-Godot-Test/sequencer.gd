@@ -122,6 +122,7 @@ func stop() -> void:
 func next() -> void:
 	if _steps.is_empty():
 		return
+	var was_playing := _playing
 	_gen += 1
 	var gen := _gen
 	_playing = false
@@ -131,6 +132,9 @@ func next() -> void:
 	if gen != _gen:
 		return
 	_idx = nxt
+	if was_playing:
+		_playing = true
+		_run(_gen)
 	state_changed.emit()
 
 
@@ -138,6 +142,7 @@ func next() -> void:
 func prev() -> void:
 	if _steps.is_empty():
 		return
+	var was_playing := _playing
 	_gen += 1
 	var gen := _gen
 	_playing = false
@@ -147,13 +152,15 @@ func prev() -> void:
 	if gen != _gen:
 		return
 	_idx = prv
+	if was_playing:
+		_playing = true
+		_run(_gen)
 	state_changed.emit()
 
 
 # --------------------------------------------------------------- Playback-Coroutine
 
 func _run(gen: int) -> void:
-	_idx = 0
 	state_changed.emit()
 	await _apply_step(_idx, gen)   # Startschritt hart setzen (kein Morph)
 	while gen == _gen:
