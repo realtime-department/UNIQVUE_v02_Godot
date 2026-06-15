@@ -1,0 +1,91 @@
+[gd_scene format=3 uid="uid://cgstruct00001"]
+
+[ext_resource type="Script"              path="res://structure_sim.gd"                  id="1_sim"]
+[ext_resource type="Shader"              path="res://structure_surf.gdshader"            id="2_surf"]
+[ext_resource type="Shader"              path="res://structure_ground.gdshader"          id="3_gnd"]
+[ext_resource type="Shader"              path="res://structure_grid.gdshader"            id="4_grid"]
+[ext_resource type="Shader"              path="res://structure_part.gdshader"            id="5_part"]
+[ext_resource type="Shader"              path="res://gradient_sky.gdshader"              id="6_sky"]
+[ext_resource type="CompressedTexture2D" uid="uid://ctogwc2403urm" path="res://textures/Structure_Color.png"      id="tx_color"]
+[ext_resource type="CompressedTexture2D" uid="uid://c1mikustwxc25" path="res://textures/Structure_AO3.png"        id="tx_ao"]
+[ext_resource type="CompressedTexture2D" uid="uid://xcdscophodd1"  path="res://textures/Structure_Ground_v003.png" id="tx_ground"]
+[ext_resource type="CompressedTexture2D" uid="uid://ooqtdgmlkdpc"  path="res://textures/Grid_Rectangles.png"      id="tx_grid"]
+
+[sub_resource type="ShaderMaterial" id="SM_sky"]
+shader = ExtResource("6_sky")
+
+[sub_resource type="Sky" id="Sky_grad"]
+sky_material = SubResource("SM_sky")
+
+[sub_resource type="Environment" id="Env_struct"]
+background_mode = 2
+sky = SubResource("Sky_grad")
+ambient_light_source = 0
+reflected_light_source = 0
+tonemap_mode = 0
+
+[sub_resource type="ShaderMaterial" id="SM_surf"]
+render_priority = 0
+shader = ExtResource("2_surf")
+shader_parameter/tex_color  = ExtResource("tx_color")
+shader_parameter/tex_ao     = ExtResource("tx_ao")
+shader_parameter/exposure   = 1.4
+shader_parameter/light_gain = 1.0
+shader_parameter/fade_start = 3200.0
+shader_parameter/fade_end   = 6600.0
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
+size = Vector2(410.0, 6650.0)
+
+[sub_resource type="ShaderMaterial" id="SM_ground"]
+render_priority = 0
+shader = ExtResource("3_gnd")
+shader_parameter/tex_ground  = ExtResource("tx_ground")
+shader_parameter/opacity     = 0.78
+shader_parameter/repeat_y    = 8.53
+shader_parameter/fade_start  = 3200.0
+shader_parameter/fade_end    = 6600.0
+
+[sub_resource type="ShaderMaterial" id="SM_grid"]
+render_priority = 0
+shader = ExtResource("4_grid")
+shader_parameter/tex_grid   = ExtResource("tx_grid")
+shader_parameter/opacity    = 0.85
+shader_parameter/fade_start = 3200.0
+shader_parameter/fade_end   = 6600.0
+
+[sub_resource type="ShaderMaterial" id="SM_part"]
+render_priority = 0
+shader = ExtResource("5_part")
+shader_parameter/part_size  = 2.8
+shader_parameter/near_dist  = 300.0
+shader_parameter/far_dist   = 5500.0
+
+[node name="Structure" type="Node3D"]
+script = ExtResource("1_sim")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Env_struct")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 150, 560)
+fov = 38.0
+near = 1.0
+far = 12000.0
+
+[node name="StructMesh" type="MultiMeshInstance3D" parent="."]
+cast_shadow = 0
+material_override = SubResource("SM_surf")
+
+[node name="Ground" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 6, -3100)
+cast_shadow = 0
+mesh = SubResource("PlaneMesh_ground")
+material_override = SubResource("SM_ground")
+
+[node name="GridPanels" type="MultiMeshInstance3D" parent="."]
+cast_shadow = 0
+material_override = SubResource("SM_grid")
+
+[node name="Points" type="MeshInstance3D" parent="."]
+material_override = SubResource("SM_part")
