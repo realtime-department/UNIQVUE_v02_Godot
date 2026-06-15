@@ -6,9 +6,10 @@ extends Node3D
 ## velocity-gesteuert in einer 22 x 13 x (8+depth*34) Box. Der Chaos-Regler
 ## blendet zwischen laminarer Stroemung und turbulentem Feld. Hub-Punkte
 ## (deterministisch via rngHash + hubs-Anteil) sind groesser/heller und
-## verstaerken ihre Links. Pro Frame ein O(N^2)-Paar-Pass, der gleichzeitig
-## Separationskraefte (SEP_R) und Links (< link_dist, smoothstep-Fade ueber
-## link_soft) liefert; daraus werden zwei ImmediateMesh gebaut
+## verstaerken ihre Links. Pro Frame EIN Grid-Nachbarpass (HTML buildGrid)
+## liefert gleichzeitig Separationskraefte (SEP_R) und Links (< link_dist,
+## smoothstep-Fade ueber link_soft); Geometrie wird in persistente Buffer
+## geschrieben und je Mesh in EINEM add_surface_from_arrays hochgeladen
 ## (PRIMITIVE_LINES + PRIMITIVE_POINTS).
 ##
 ## Farben kommen NICHT aus @exports: die Shader (plexus.gdshader /
@@ -54,13 +55,36 @@ var _hub: PackedFloat32Array
 var _phase: PackedFloat32Array
 var _sep: PackedFloat32Array
 
+# Spatial grid (HTML buildGrid): head-of-linked-list per cell + per-point next.
+var _grid_buf: PackedInt32Array
+var _next_idx: PackedInt32Array
+var _gx: int = 1
+var _gy: int = 1
+var _gz: int = 1
+var _cell_size: float = 3.6
+
+# Persistent geometry buffers, filled by index each frame then uploaded once.
+var _lp: PackedVector3Array      # line vertex positions (2 per link)
+var _lc: PackedColorArray        # line vertex colours (alpha in .a)
+var _pp: PackedVector3Array      # point positions
+var _pc: PackedColorArray        # point colours (hub in .r)
+
 var _t: float = 0.0
 var _box_z: float = 14.0
 var _depth_cache: float = -1.0
 var _hubs_cache: float = -1.0
 
-var _point_mesh: ImmediateMesh
-var _line_mesh: ImmediateMesh
+# --- Profiling: prints the CPU cost of each sim phase every 60 frames so we can
+# tell whether we are CPU- or GPU-bound. Set to false to silence.
+@export var profile: bool = true
+var _pf_nbr: int = 0
+var _pf_int: int = 0
+var _pf_up: int = 0
+var _pf_frames: int = 0
+var _pf_links: int = 0
+
+var _point_mesh: ArrayMesh
+var _line_mesh: ArrayMesh
 var _point_mat: ShaderMaterial
 var _line_mat: ShaderMaterial
 
@@ -75,12 +99,17 @@ func _ready() -> void:
 	_hub = PackedFloat32Array(); _hub.resize(NMAX)
 	_phase = PackedFloat32Array(); _phase.resize(NMAX)
 	_sep = PackedFloat32Array(); _sep.resize(NMAX * 3)
+	_next_idx = PackedInt32Array(); _next_idx.resize(NMAX)
+	_lp = PackedVector3Array(); _lp.resize(LMAX * 2)
+	_lc = PackedColorArray();  _lc.resize(LMAX * 2)
+	_pp = PackedVector3Array(); _pp.resize(NMAX)
+	_pc = PackedColorArray();  _pc.resize(NMAX)
 	_box_z = 8.0 + depth * 34.0
 	_depth_cache = depth
 	_hubs_cache = hubs
 	_seed()
-	_point_mesh = ImmediateMesh.new()
-	_line_mesh = ImmediateMesh.new()
+	_point_mesh = ArrayMesh.new()
+	_line_mesh = ArrayMesh.new()
 	_points.mesh = _point_mesh
 	_streaks.mesh = _line_mesh
 	_point_mat = _points.material_override as ShaderMaterial
@@ -180,73 +209,117 @@ func _flow(x: float, y: float, z: float, ph: float) -> Vector3:
 	return Vector3(lx * lw + tx * ch, ly * lw + ty * ch, lz * lw + tz * ch)
 
 
+## Spatial grid (port of HTML buildGrid): bucket the first n points into cells
+## of side cell_size; _grid_buf[ci] is the head of a per-cell linked list, with
+## _next_idx[i] chaining to the next point in the same cell.
+func _build_grid(cs: float, n: int) -> void:
+	_cell_size = maxf(0.5, cs)
+	_gx = int(ceil(BOX_X / _cell_size)) + 2
+	_gy = int(ceil(BOX_Y / _cell_size)) + 2
+	_gz = int(ceil(_box_z / _cell_size)) + 2
+	var total := _gx * _gy * _gz
+	if _grid_buf.size() != total:
+		_grid_buf.resize(total)
+	_grid_buf.fill(-1)
+	var ox := BOX_X * 0.5
+	var oy := BOX_Y * 0.5
+	var oz := _box_z * 0.5
+	for i in range(n):
+		var i3 := i * 3
+		var cx := clampi(int(floor((_pos[i3]     + ox) / _cell_size)) + 1, 0, _gx - 1)
+		var cy := clampi(int(floor((_pos[i3 + 1] + oy) / _cell_size)) + 1, 0, _gy - 1)
+		var cz := clampi(int(floor((_pos[i3 + 2] + oz) / _cell_size)) + 1, 0, _gz - 1)
+		var ci := (cz * _gy + cy) * _gx + cx
+		_next_idx[i] = _grid_buf[ci]
+		_grid_buf[ci] = i
+
+
 func _simulate(dt: float) -> void:
 	var n := clampi(count, 40, NMAX)
+	var t0 := Time.get_ticks_usec()
+
+	# --- One spatial grid at link_dist serves BOTH separation (radius SEP_R) and
+	# links (radius link_dist): since link_dist >= SEP_R, a single 3x3x3 scan
+	# finds every neighbour either pass needs. Separation forces, link segments
+	# and the point cloud are all produced from the current positions in this one
+	# pass; integration follows, so points and link endpoints stay aligned.
+	_build_grid(link_dist, n)
+	_sep.fill(0.0)
+	var posr := _pos          # read-only alias -> faster inner reads (CoW safe)
+	var grid := _grid_buf
+	var nxt := _next_idx
+	var hub := _hub
 	var sr2 := SEP_R * SEP_R
 	var max_d := link_dist
 	var max_d2 := max_d * max_d
 	var inner := max_d * (1.0 - link_soft)
 	var inner_rng := maxf(0.0001, max_d - inner)
-
-	_line_mesh.clear_surfaces()
-	_point_mesh.clear_surfaces()
-	_line_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
-	_point_mesh.surface_begin(Mesh.PRIMITIVE_POINTS)
-
-	# Ein O(N^2)-Halb-Pass (j > i) liefert Separation UND Links aus denselben
-	# (aktuellen) Positionen; Punkte werden aus denselben Positionen emittiert,
-	# damit Linien-Enden exakt auf den Punkten liegen. Integration folgt danach.
-	_sep.fill(0.0)
+	var ox := BOX_X * 0.5
+	var oy := BOX_Y * 0.5
+	var oz := _box_z * 0.5
+	var gx := _gx
+	var gy := _gy
+	var gz := _gz
+	var cs := _cell_size
 	var li := 0
 	for i in range(n):
 		var i3 := i * 3
-		var xi := _pos[i3]
-		var yi := _pos[i3 + 1]
-		var zi := _pos[i3 + 2]
-		var hub_i := _hub[i]
-		for j in range(i + 1, n):
-			var j3 := j * 3
-			var dx := xi - _pos[j3]
-			var dy := yi - _pos[j3 + 1]
-			var dz := zi - _pos[j3 + 2]
-			var d2 := dx * dx + dy * dy + dz * dz
-			if d2 < sr2 and d2 > 1e-4:
-				var dist_s := sqrt(d2)
-				var inv := (1.0 - dist_s / SEP_R) / dist_s
-				_sep[i3] += dx * inv
-				_sep[i3 + 1] += dy * inv
-				_sep[i3 + 2] += dz * inv
-				_sep[j3] -= dx * inv
-				_sep[j3 + 1] -= dy * inv
-				_sep[j3 + 2] -= dz * inv
-			if d2 < max_d2 and li < LMAX:
-				var dist := sqrt(d2)
-				var a: float
-				if dist <= inner:
-					a = 1.0
-				else:
-					var tt := (dist - inner) / inner_rng
-					a = 1.0 - tt * tt * (3.0 - 2.0 * tt)
-				a *= 1.0 + (hub_i + _hub[j]) * 0.5
-				var lc := Color(1.0, 1.0, 1.0, a)
-				_line_mesh.surface_set_color(lc)
-				_line_mesh.surface_add_vertex(Vector3(xi, yi, zi))
-				_line_mesh.surface_set_color(lc)
-				_line_mesh.surface_add_vertex(Vector3(_pos[j3], _pos[j3 + 1], _pos[j3 + 2]))
-				li += 1
-		# Punkt-Vertex: hub in COLOR.r (Shader skaliert Groesse/Helligkeit damit).
-		_point_mesh.surface_set_color(Color(hub_i, 0.0, 0.0, 1.0))
-		_point_mesh.surface_add_vertex(Vector3(xi, yi, zi))
-	if li == 0:
-		# surface_end() braucht mindestens einen Vertex -> unsichtbares Dummy-Segment.
-		_line_mesh.surface_set_color(Color(0.0, 0.0, 0.0, 0.0))
-		_line_mesh.surface_add_vertex(Vector3.ZERO)
-		_line_mesh.surface_set_color(Color(0.0, 0.0, 0.0, 0.0))
-		_line_mesh.surface_add_vertex(Vector3.ZERO)
-	_line_mesh.surface_end()
-	_point_mesh.surface_end()
+		var xi := posr[i3]
+		var yi := posr[i3 + 1]
+		var zi := posr[i3 + 2]
+		var hub_i := hub[i]
+		var cx := clampi(int(floor((xi + ox) / cs)) + 1, 0, gx - 1)
+		var cy := clampi(int(floor((yi + oy) / cs)) + 1, 0, gy - 1)
+		var cz := clampi(int(floor((zi + oz) / cs)) + 1, 0, gz - 1)
+		for dz in range(-1, 2):
+			var nz := cz + dz
+			if nz < 0 or nz >= gz: continue
+			for dy in range(-1, 2):
+				var ny := cy + dy
+				if ny < 0 or ny >= gy: continue
+				for dx in range(-1, 2):
+					var nx := cx + dx
+					if nx < 0 or nx >= gx: continue
+					var j := grid[(nz * gy + ny) * gx + nx]
+					while j != -1:
+						if j != i:
+							var j3 := j * 3
+							var ddx := xi - posr[j3]
+							var ddy := yi - posr[j3 + 1]
+							var ddz := zi - posr[j3 + 2]
+							var d2 := ddx * ddx + ddy * ddy + ddz * ddz
+							# Beyond link_dist contributes to neither pass; one
+							# sqrt then serves separation and the link alpha.
+							if d2 < max_d2 and d2 > 1e-4:
+								var dsq := sqrt(d2)
+								if d2 < sr2:
+									var inv := (1.0 - dsq / SEP_R) / dsq
+									_sep[i3] += ddx * inv
+									_sep[i3 + 1] += ddy * inv
+									_sep[i3 + 2] += ddz * inv
+								if j > i and li < LMAX:
+									var a: float
+									if dsq <= inner:
+										a = 1.0
+									else:
+										var tt := (dsq - inner) / inner_rng
+										a = 1.0 - tt * tt * (3.0 - 2.0 * tt)
+									a *= 1.0 + (hub_i + hub[j]) * 0.5
+									var lc := Color(1.0, 1.0, 1.0, a)
+									var b := li * 2
+									_lp[b] = Vector3(xi, yi, zi)
+									_lc[b] = lc
+									_lp[b + 1] = Vector3(posr[j3], posr[j3 + 1], posr[j3 + 2])
+									_lc[b + 1] = lc
+									li += 1
+						j = nxt[j]
+		# Point i (current position); hub in COLOR.r.
+		_pp[i] = Vector3(xi, yi, zi)
+		_pc[i] = Color(hub_i, 0.0, 0.0, 1.0)
 
-	# Integration (HTML step()): Flow + Separation + Jitter, Daempfung,
+	var t1 := Time.get_ticks_usec()
+
+	# --- Integration (HTML step()): Flow + Separation + Jitter, Daempfung,
 	# Positions-Update, weiche Box-Grenzen (Feder zurueck ab 96 % Halbmass).
 	var sp := speed
 	var dr := drift
@@ -288,3 +361,40 @@ func _simulate(dt: float) -> void:
 		_pos[i3] = px
 		_pos[i3 + 1] = py
 		_pos[i3 + 2] = pz
+
+	var t2 := Time.get_ticks_usec()
+	_upload_meshes(n, li)
+
+	if profile:
+		var t3 := Time.get_ticks_usec()
+		_pf_nbr += t1 - t0
+		_pf_int += t2 - t1
+		_pf_up += t3 - t2
+		_pf_links += li
+		_pf_frames += 1
+		if _pf_frames >= 60:
+			var f := float(_pf_frames)
+			print("plexus n=%d links=%d | sim cpu/frame: neighbours+emit %.2fms  integrate %.2fms  upload %.2fms  TOTAL %.2fms | fps=%.0f (frame budget %.2fms)" % [
+				n, _pf_links / _pf_frames,
+				_pf_nbr / f / 1000.0, _pf_int / f / 1000.0, _pf_up / f / 1000.0,
+				(_pf_nbr + _pf_int + _pf_up) / f / 1000.0,
+				Engine.get_frames_per_second(), 1000.0 / maxf(1.0, Engine.get_frames_per_second())])
+			_pf_nbr = 0; _pf_int = 0; _pf_up = 0; _pf_links = 0; _pf_frames = 0
+
+
+## Single batched upload per mesh (replaces per-vertex ImmediateMesh calls).
+func _upload_meshes(n: int, li: int) -> void:
+	_line_mesh.clear_surfaces()
+	if li > 0:
+		var arrs: Array = []
+		arrs.resize(Mesh.ARRAY_MAX)
+		arrs[Mesh.ARRAY_VERTEX] = _lp.slice(0, li * 2)
+		arrs[Mesh.ARRAY_COLOR]  = _lc.slice(0, li * 2)
+		_line_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrs)
+	_point_mesh.clear_surfaces()
+	if n > 0:
+		var parrs: Array = []
+		parrs.resize(Mesh.ARRAY_MAX)
+		parrs[Mesh.ARRAY_VERTEX] = _pp.slice(0, n)
+		parrs[Mesh.ARRAY_COLOR]  = _pc.slice(0, n)
+		_point_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, parrs)
