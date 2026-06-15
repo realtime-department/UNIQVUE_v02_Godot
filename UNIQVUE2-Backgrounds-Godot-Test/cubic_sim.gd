@@ -1,10 +1,11 @@
 extends Node3D
-## Cubic — instanced cube tunnel, ported from studio-v005 createCubicModule()
+## Cubic — instanced cube tunnel, faithful port of studio-v005 createCubicModule()
 ## (studio-v005.html:971-1242).
 ##
-## All 6000 cube positions/rotations are computed inside cubic_surf.gdshader and
-## cubic_line.gdshader from INSTANCE_ID — no per-frame transform uploads needed.
-## CPU-side: only uniform updates + ImmediateMesh for 4200 particles.
+## Like the reference, every cube's transform is computed on the CPU in
+## _write_matrices() (the port of writeMatrices()) and uploaded to the MultiMesh
+## via set_instance_transform(); the shaders only light the instance. Particles
+## are CPU-positioned points (ImmediateMesh).
 ##
 ## Colors come from global STYLE uniforms (fog_color/elem_a/elem_b) — NO @export
 ## Color.  @exports are captured by ParamStore as scene/* entries.
@@ -41,6 +42,7 @@ extends Node3D
 
 const COLS := 10
 const ROWS := 150
+const PER_WALL := COLS * ROWS    # 1500
 const TILES := 4 * COLS * ROWS   # 6000
 const PMAX  := 4200
 
@@ -50,10 +52,16 @@ var _p_scroll: float = 0.0
 var _span_z: float = 795.0
 var _t: float = 0.0
 
+# Per-instance brightness seed, indexed by instance idx (s,c,r order).
+var _seed: PackedFloat32Array
+
 var _pbase_x: PackedFloat32Array
 var _pbase_y: PackedFloat32Array
 var _pbase_z: PackedFloat32Array
 var _pseed:   PackedFloat32Array
+
+var _surf_mm: MultiMesh
+var _line_mm: MultiMesh
 
 var _p_mesh: ImmediateMesh
 var _surf_mat: ShaderMaterial
@@ -67,19 +75,37 @@ var _part_mat: ShaderMaterial
 
 
 func _ready() -> void:
-	# Surf MultiMesh — BoxMesh, Identity transforms (positions computed in shader)
-	var surf_mm := MultiMesh.new()
-	surf_mm.transform_format = MultiMesh.TRANSFORM_3D
-	surf_mm.instance_count   = TILES
-	surf_mm.mesh             = BoxMesh.new()
-	_surf.multimesh          = surf_mm
+	# Surf MultiMesh — unit BoxMesh, per-instance transforms written each frame.
+	_surf_mm = MultiMesh.new()
+	_surf_mm.transform_format = MultiMesh.TRANSFORM_3D
+	_surf_mm.use_custom_data  = true   # exposes INSTANCE_CUSTOM (seed) in shader
+	_surf_mm.instance_count   = TILES
+	var box := BoxMesh.new()
+	box.size = Vector3.ONE             # corners at +/-0.5 (matches outline)
+	_surf_mm.mesh             = box
+	_surf.multimesh           = _surf_mm
 
 	# Line MultiMesh — unit-cube outline (12 edges)
-	var line_mm := MultiMesh.new()
-	line_mm.transform_format = MultiMesh.TRANSFORM_3D
-	line_mm.instance_count   = TILES
-	line_mm.mesh             = _make_outline_mesh()
-	_line.multimesh          = line_mm
+	_line_mm = MultiMesh.new()
+	_line_mm.transform_format = MultiMesh.TRANSFORM_3D
+	_line_mm.use_custom_data  = true
+	_line_mm.instance_count   = TILES
+	_line_mm.mesh             = _make_outline_mesh()
+	_line.multimesh           = _line_mm
+
+	# Per-instance seed: cellSeed[ci] with ci = s*PER_WALL + r*COLS + c
+	# (the reference aSeed mapping), set once — it never changes.
+	_seed = PackedFloat32Array(); _seed.resize(TILES)
+	var idx := 0
+	for s in range(4):
+		for c in range(COLS):
+			for r in range(ROWS):
+				var ci := s * PER_WALL + r * COLS + c
+				var sd := _hsh(float(ci) * 0.7)
+				_seed[idx] = sd
+				_surf_mm.set_instance_custom_data(idx, Color(sd, 0.0, 0.0, 1.0))
+				_line_mm.set_instance_custom_data(idx, Color(sd, 0.0, 0.0, 1.0))
+				idx += 1
 
 	var big := AABB(Vector3(-400.0, -400.0, -1800.0), Vector3(800.0, 800.0, 1900.0))
 	_surf.custom_aabb = big
@@ -103,6 +129,8 @@ func _ready() -> void:
 	_surf_mat = _surf.material_override as ShaderMaterial
 	_line_mat = _line.material_override as ShaderMaterial
 	_part_mat = _points.material_override as ShaderMaterial
+
+	_write_matrices()
 
 
 func _hsh(n: float) -> float:
@@ -137,16 +165,57 @@ func _make_outline_mesh() -> ArrayMesh:
 func _process(delta: float) -> void:
 	var dt := minf(delta, 0.05)
 	_t += dt
-	var cube_w := (2.0 * tunnel_size) / float(COLS)
-	_span_z = cube_w * float(ROWS)
 	var adv := dt * speed * 28.0
-	_scroll    -= adv
-	if _scroll < -_span_z: _scroll += _span_z
 	_tunnel_rot += dt * rotate * 0.2
-	_p_scroll = fmod(_p_scroll - adv * 1.1 / maxf(_span_z, 1.0), 1.0)
+	_scroll -= adv
+	if _scroll < -_span_z: _scroll += _span_z
+	if _scroll >  _span_z: _scroll -= _span_z
+	_p_scroll = _p_scroll - adv * 1.1 / maxf(_span_z, 1.0)
+	_p_scroll -= floor(_p_scroll)
+	_write_matrices()
 	_update_particles()
 	_update_camera()
 	_update_materials()
+
+
+## Port of writeMatrices(): rebuild every cube transform on the CPU.
+func _write_matrices() -> void:
+	var rr := tunnel_size
+	var cube_w := (2.0 * rr) / float(COLS)
+	var sc := cube_w * cube_scale
+	var cell_d := cube_w
+	_span_z = cell_d * float(ROWS)
+	var tilt := wall_tilt * 0.6
+	var ct := cos(tilt)
+	var st := sin(tilt)
+	var z_axis := Vector3(0.0, 0.0, 1.0)
+	var idx := 0
+	for s in range(4):
+		var ang := float(s) * PI * 0.5 + _tunnel_rot
+		var ca := cos(ang)
+		var sa := sin(ang)
+		var rot_z := ang + tilt
+		var basis := Basis(z_axis, rot_z).scaled(Vector3(sc, sc, sc))
+		for c in range(COLS):
+			var u := (float(c) + 0.5) / float(COLS) * 2.0 - 1.0
+			var lx0 := u * rr
+			for r in range(ROWS):
+				var zc := fmod(float(r) * cell_d + _scroll, _span_z)
+				if zc < 0.0: zc += _span_z
+				var jit := (_seed[idx] - 0.5) * cube_jitter * cube_w
+				var ly0 := -rr + sc * 0.5 + jit
+				var dx := lx0
+				var dy := ly0 - (-rr)
+				var lx := ct * dx - st * dy
+				var ly := (-rr) + (st * dx + ct * dy)
+				var wx := lx * ca - ly * sa
+				var wy := lx * sa + ly * ca
+				var t := Transform3D(basis, Vector3(wx, wy, -zc))
+				_surf_mm.set_instance_transform(idx, t)
+				_line_mm.set_instance_transform(idx, t)
+				idx += 1
+	_surf_mm.visible_instance_count = idx
+	_line_mm.visible_instance_count = idx if outlines else 0
 
 
 func _update_particles() -> void:
@@ -173,19 +242,12 @@ func _update_camera() -> void:
 	var up   := Vector3(sin(rr), cos(rr), 0.0)
 	var sway := sin(_t * 0.3) * cam_sway
 	_camera.position = Vector3(sway, 0.0, 0.0)
-	_camera.look_at(Vector3(sway, 0.0, -100.0), up)
+	_camera.look_at(Vector3(0.0, 0.0, -100.0), up)
 	_camera.fov = cam_fov
 
 
 func _update_materials() -> void:
 	if _surf_mat:
-		_surf_mat.set_shader_parameter("tunnel_size",  tunnel_size)
-		_surf_mat.set_shader_parameter("cube_scale",   cube_scale)
-		_surf_mat.set_shader_parameter("cube_jitter",  cube_jitter)
-		_surf_mat.set_shader_parameter("wall_tilt",    wall_tilt)
-		_surf_mat.set_shader_parameter("tunnel_rot",   _tunnel_rot)
-		_surf_mat.set_shader_parameter("scroll",       _scroll)
-		_surf_mat.set_shader_parameter("span_z",       _span_z)
 		_surf_mat.set_shader_parameter("face_light",   face_light)
 		_surf_mat.set_shader_parameter("spec",         spec)
 		_surf_mat.set_shader_parameter("shininess",    shininess)
@@ -193,18 +255,13 @@ func _update_materials() -> void:
 		_surf_mat.set_shader_parameter("opacity",      opacity)
 		_surf_mat.set_shader_parameter("fog_start",    fog_start)
 		_surf_mat.set_shader_parameter("fog_density",  fog_density)
+		_surf_mat.set_shader_parameter("z_far",        _span_z)
 	if _line_mat:
-		_line_mat.set_shader_parameter("tunnel_size",  tunnel_size)
-		_line_mat.set_shader_parameter("cube_scale",   cube_scale)
-		_line_mat.set_shader_parameter("cube_jitter",  cube_jitter)
-		_line_mat.set_shader_parameter("wall_tilt",    wall_tilt)
-		_line_mat.set_shader_parameter("tunnel_rot",   _tunnel_rot)
-		_line_mat.set_shader_parameter("scroll",       _scroll)
-		_line_mat.set_shader_parameter("span_z",       _span_z)
 		_line_mat.set_shader_parameter("glow",         edge_glow)
 		_line_mat.set_shader_parameter("opacity",      opacity)
 		_line_mat.set_shader_parameter("fog_start",    fog_start)
 		_line_mat.set_shader_parameter("fog_density",  fog_density)
+		_line_mat.set_shader_parameter("z_far",        _span_z)
 		_line.visible = outlines
 	if _part_mat:
 		_part_mat.set_shader_parameter("opacity",      opacity)
