@@ -6,17 +6,18 @@ global uniform vec4 elem_a    : source_color;
 global uniform vec4 elem_b    : source_color;
 
 group_uniforms _Sync;
-uniform float amp        = 5.6;
-uniform float freq       = 0.038;
-uniform float wavelength = 3.0;
-uniform float speed      = 0.0;
-uniform float flow       = 0.10;
-uniform float warp       = 1.5;
-uniform vec2  dir        = vec2(0.0, 1.0);
-uniform float y_off      = -8.0;
-uniform float mirror     = 0.0;
-uniform float z_near     = 6.0;
-uniform float z_far      = 140.0;
+uniform float amp          = 5.6;
+uniform float freq         = 0.038;
+uniform float wavelength   = 3.0;
+uniform float speed        = 0.0;
+uniform float flow         = 0.10;
+uniform float warp         = 1.5;
+uniform vec2  dir          = vec2(0.0, 1.0);
+uniform float y_off        = 0.0;
+uniform float mirror       = 0.0;
+uniform float z_near       = 80.0;
+uniform float z_far        = 380.0;
+uniform float sphere_radius = 100.0;
 group_uniforms;
 
 group_uniforms Appearance;
@@ -45,7 +46,7 @@ void vertex() {
 	pos.x = mix(pos.x, -pos.x, step(0.5, mirror));
 	vec2 q = pos.xz * freq * 6.0;
 	float h = field(q);
-	pos.y = h * amp + y_off;
+	pos = normalize(pos) * (sphere_radius + h * amp + y_off);
 	VERTEX = pos;
 	v_h = clamp(h * 0.5 + 0.5, 0.0, 1.0);
 	float vz = -(MODELVIEW_MATRIX * vec4(pos, 1.0)).z;

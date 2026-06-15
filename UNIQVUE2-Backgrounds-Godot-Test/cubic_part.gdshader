@@ -42,10 +42,8 @@ void fragment() {
 		m = clamp(max(spike, core), 0.0, 1.0);
 	} else {
 		vec2 pa = abs(pc);
-		m = clamp(
-			smoothstep(0.10, 0.04, pa.y) * smoothstep(0.48, 0.40, pa.x) +
-			smoothstep(0.10, 0.04, pa.x) * smoothstep(0.48, 0.40, pa.y),
-			0.0, 1.0);
+		float cr = min(pa.x, pa.y);
+		m = smoothstep(0.12, 0.0, cr) * smoothstep(0.5, 0.2, r);
 	}
 	if (m <= 0.001) { discard; }
 	ALBEDO = elem_b.rgb;
