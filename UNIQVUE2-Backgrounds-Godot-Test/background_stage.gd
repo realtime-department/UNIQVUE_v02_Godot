@@ -190,6 +190,7 @@ func _ready() -> void:
 	add_child(_blackout)
 
 	get_window().size_changed.connect(_on_window_resized)
+	RenderingServer.global_shader_parameter_set("sky_viewport_h", float(vp_size.y))
 
 	# Ersten Hintergrund laden und aktiv schalten.
 	_scene_idx = 0
@@ -295,6 +296,7 @@ func _apply_vp_size() -> void:
 		vp.size = s
 	if _master != null:
 		_master.size = s
+	RenderingServer.global_shader_parameter_set("sky_viewport_h", float(s.y))
 
 
 # Naechste Szene in SCENES-Reihenfolge.

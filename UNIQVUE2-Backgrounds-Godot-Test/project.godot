@@ -25,6 +25,7 @@ ParamStore="*res://param_store.gd"
 BgCore="*res://bg_core.gd"
 Sequencer="*res://sequencer.gd"
 RuntimeUI="*res://runtime_ui.gd"
+PerfMonitor="*res://perf_monitor.gd"
 
 [display]
 
@@ -72,4 +73,8 @@ elem_a={
 elem_b={
 "type": "color",
 "value": Color(0.74902, 0.909804, 1, 1)
+}
+sky_viewport_h={
+"type": "float",
+"value": 1080.0
 }
