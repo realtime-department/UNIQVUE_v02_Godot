@@ -1,0 +1,6 @@
+# Godot 4 generated
+.godot/
+*.tmp
+
+# Backup files
+*.bak

@@ -76,7 +76,7 @@ var _hubs_cache: float = -1.0
 
 # --- Profiling: prints the CPU cost of each sim phase every 60 frames so we can
 # tell whether we are CPU- or GPU-bound. Set to false to silence.
-@export var profile: bool = true
+@export var profile: bool = false
 var _pf_nbr: int = 0
 var _pf_int: int = 0
 var _pf_up: int = 0

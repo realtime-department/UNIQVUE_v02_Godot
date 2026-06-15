@@ -794,6 +794,60 @@ func _build_stage_config(parent: Node) -> void:
 	body.add_child(close_btn)
 	close_btn.pressed.connect(func() -> void: ds.call("close_preview"))
 
+	# --- Scene selector: one button per scene ---
+	var scene_label := Label.new()
+	scene_label.text = "scene"
+	scene_label.add_theme_font_size_override("font_size", 10)
+	scene_label.add_theme_color_override("font_color", COL_MUTED)
+	body.add_child(scene_label)
+	var scene_row1 := HBoxContainer.new()
+	scene_row1.add_theme_constant_override("separation", 4)
+	var scene_row2 := HBoxContainer.new()
+	scene_row2.add_theme_constant_override("separation", 4)
+	body.add_child(scene_row1)
+	body.add_child(scene_row2)
+	var scene_labels_arr := ["Tunnel", "Wave", "Stripes", "Lines", "Plexus", "Cubic", "Structure"]
+	for si in range(scene_labels_arr.size()):
+		var sb := _cfg_button(scene_labels_arr[si])
+		sb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var target_idx := si
+		sb.pressed.connect(func() -> void:
+			var stage := get_node_or_null("/root/BackgroundStage")
+			if stage != null:
+				stage.call("transition_to", target_idx))
+		if si < 4:
+			scene_row1.add_child(sb)
+		else:
+			scene_row2.add_child(sb)
+
+	# --- Master blackout ---
+	var black_row := HBoxContainer.new()
+	black_row.add_theme_constant_override("separation", 6)
+	var blbl := _cfg_label("blackout")
+	black_row.add_child(blbl)
+	var bslider := HSlider.new()
+	bslider.min_value = 0.0
+	bslider.max_value = 1.0
+	bslider.step = 0.01
+	bslider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bslider.custom_minimum_size = Vector2(0, 20)
+	var bstage := get_node_or_null("/root/BackgroundStage")
+	if bstage != null:
+		bslider.value = bstage.call("get_blackout")
+	bslider.value_changed.connect(func(v: float) -> void:
+		var st := get_node_or_null("/root/BackgroundStage")
+		if st != null:
+			st.call("set_blackout", v))
+	black_row.add_child(bslider)
+	var black_btn := _cfg_button("BLACK")
+	black_btn.pressed.connect(func() -> void:
+		bslider.value = 1.0
+		var st := get_node_or_null("/root/BackgroundStage")
+		if st != null:
+			st.call("set_blackout", 1.0))
+	black_row.add_child(black_btn)
+	body.add_child(black_row)
+
 
 ## Globaler STYLE-Bereich: die 8 Palettenfarben als gestapelte Swatch-Zeilen
 ## (Name links, breiter Farbbalken rechts), in zwei beschriftete Gruppen geteilt.
