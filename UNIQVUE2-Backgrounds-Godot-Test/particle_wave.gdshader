@@ -19,13 +19,12 @@ uniform float x_noise    : hint_range(0.0, 1.0)   = 0.10;
 group_uniforms;
 
 group_uniforms Appearance;
-uniform float sphere_radius : hint_range(50.0, 300.0) = 100.0;
 uniform float point_size    : hint_range(1.0, 8.0)   = 3.0;
 uniform float point_opacity : hint_range(0.0, 1.5)   = 0.40;
 uniform float glow_boost    : hint_range(0.0, 4.0)   = 0.15;
 uniform int   shape         : hint_range(0, 4, 1)    = 0;
-uniform float z_near        : hint_range(0.0, 500.0) = 80.0;
-uniform float z_far         : hint_range(10.0, 800.0)= 380.0;
+uniform float z_near        : hint_range(0.0, 200.0) = 6.0;
+uniform float z_far         : hint_range(10.0, 600.0)= 140.0;
 group_uniforms;
 
 varying float v_h;
@@ -51,9 +50,9 @@ void vertex() {
 	pos.x = mix(pos.x, -pos.x, step(0.5, mirror));
 	vec2 q = pos.xz * freq * 6.0;
 	float h = field(q);
+	pos.y = h * amp + y_off;
 	float xt = TIME * speed;
 	pos.x += x_noise * (sin(pos.z * 0.7 + xt * 1.3) * 0.6 + sin(pos.z * 2.3 - xt * 0.9) * 0.4);
-	pos = normalize(pos) * (sphere_radius + h * amp + y_off);
 	VERTEX = pos;
 
 	v_h = clamp(h * 0.5 + 0.5, 0.0, 1.0);

@@ -30,14 +30,14 @@ shader_parameter/speed = 0.0
 shader_parameter/flow = 0.1
 shader_parameter/warp = 1.5
 shader_parameter/dir = Vector2(0, 1)
-shader_parameter/y_off = 0.0
+shader_parameter/y_off = -8.0
 shader_parameter/mirror = 0.0
 shader_parameter/x_noise = 0.1
 shader_parameter/point_size = 3.0
 shader_parameter/point_opacity = 0.4
 shader_parameter/glow_boost = 0.15
-shader_parameter/z_near = 80.0
-shader_parameter/z_far = 380.0
+shader_parameter/z_near = 6.0
+shader_parameter/z_far = 140.0
 
 [node name="ParticleWave" type="Node3D"]
 script = ExtResource("4_root")
@@ -50,7 +50,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.5, -70)
 attributes = SubResource("CameraAttributes_cam")
 fov = 60.0
 near = 0.1
-far = 500.0
+far = 300.0
 
 [node name="Grid" type="MeshInstance3D" parent="."]
 material_override = SubResource("ShaderMaterial_wave")
