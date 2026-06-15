@@ -37,8 +37,11 @@ var _windowed_rect := Rect2i(Vector2i(80, 80), Vector2i(1920, 1080))
 var _preview_windows: Array[Window] = []
 var _prev_embed := true
 
+const CONFIG_PATH := "user://display_config.cfg"
+
 
 func _ready() -> void:
+	_load_config()
 	var cli := OS.get_cmdline_user_args() + OS.get_cmdline_args()
 	if cli.has("--windowed"):
 		restore_window()
@@ -59,6 +62,7 @@ func configure(c: int, r: int, sw: int, sh: int) -> void:
 	rows = maxi(1, r)
 	screen_w = maxi(1, sw)
 	screen_h = maxi(1, sh)
+	_save_config()
 
 
 func grid_aspect() -> float:
@@ -90,6 +94,7 @@ func span_screens() -> void:
 	win.size = rect.size
 	_mode = Mode.SPAN
 	print("Display-Setup: %d Schirm(e) -> Span %s @ %s" % [n, rect.size, rect.position])
+	_save_config()
 
 
 func restore_window() -> void:
@@ -99,6 +104,7 @@ func restore_window() -> void:
 	win.size = _windowed_rect.size
 	win.position = _windowed_rect.position
 	_mode = Mode.WINDOWED
+	_save_config()
 
 
 # ------------------------------------------------------- Multi-Window-Vorschau
@@ -165,6 +171,7 @@ func open_preview() -> void:
 
 	_mode = Mode.PREVIEW
 	print("Display-Setup: Vorschau %dx%d Fenster, Zelle %dx%d" % [cols, rows, slice_w, slice_h])
+	_save_config()
 
 
 func close_preview() -> void:
@@ -191,3 +198,34 @@ func _on_preview_active(_root: Node) -> void:
 	for w in _preview_windows:
 		if is_instance_valid(w) and w.get_child_count() > 0 and w.get_child(0) is TextureRect:
 			(w.get_child(0) as TextureRect).texture = tex
+
+
+func _save_config() -> void:
+	var cfg := ConfigFile.new()
+	cfg.set_value("display", "cols", cols)
+	cfg.set_value("display", "rows", rows)
+	cfg.set_value("display", "screen_w", screen_w)
+	cfg.set_value("display", "screen_h", screen_h)
+	cfg.set_value("display", "mode", _mode)
+	cfg.save(CONFIG_PATH)
+
+func _load_config() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(CONFIG_PATH) != OK:
+		return
+	cols = cfg.get_value("display", "cols", cols)
+	rows = cfg.get_value("display", "rows", rows)
+	screen_w = cfg.get_value("display", "screen_w", screen_w)
+	screen_h = cfg.get_value("display", "screen_h", screen_h)
+	var saved_mode: int = cfg.get_value("display", "mode", Mode.WINDOWED)
+	# Re-apply the saved mode on next frame (after all autoloads are ready)
+	call_deferred("_apply_saved_mode", saved_mode)
+
+func _apply_saved_mode(saved_mode: int) -> void:
+	match saved_mode:
+		Mode.SPAN:
+			span_screens()
+		Mode.PREVIEW:
+			open_preview()
+		_:
+			pass  # WINDOWED is already default
