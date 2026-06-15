@@ -1,15 +1,14 @@
 extends MeshInstance3D
-## Erzeugt einmalig ein grid_w x grid_h Punkt-Gitter (XZ-Ebene) plus ein Linien-
-## Gitter (Wire) als Geschwisterknoten. Die gesamte Wellenbewegung geschieht im
-## Vertex-Shader — CPU baut die Geometrie nur einmal (oder bei Dichte-Aenderung).
+## Erzeugt einmalig ein grid_w x grid_h Punkt-Gitter auf einer Kugeloberflaeche
+## plus ein Linien-Gitter (Wire) als Geschwisterknoten. Die Wellenbewegung
+## geschieht als radiale Verschiebung im Vertex-Shader.
 ##
-## Dichte-Aenderung: particle_wave_root.gd ruft set_density() auf, wenn das
-## 'density'-Export aendert.
+## Dichte-/Radius-Aenderung: particle_wave_root.gd ruft set_density() bzw.
+## set_sphere_radius() auf.
 
 var grid_w: int = 220
 var grid_h: int = 220
-var span_x: float = 320.0
-var span_z: float = 420.0
+var sphere_radius: float = 100.0
 
 var _verts: PackedVector3Array   # geteilt zwischen Punkt- und Linien-Gitter
 
@@ -18,11 +17,14 @@ func _ready() -> void:
 	_build()
 
 
-## Von particle_wave_root.density-Setter aufgerufen. Rebuild des Punkt- und
-## Linien-Gitters mit neuer Dichte.
 func set_density(n: int) -> void:
 	grid_w = clampi(n, 5, 340)
 	grid_h = grid_w
+	_build()
+
+
+func set_sphere_radius(r: float) -> void:
+	sphere_radius = r
 	_build()
 
 
@@ -34,25 +36,20 @@ func _build() -> void:
 func _build_points() -> void:
 	_verts = PackedVector3Array()
 	_verts.resize(grid_w * grid_h)
-	var col_spacing := span_x / float(grid_w - 1)
-	var row_spacing := span_z / float(grid_h - 1)
-	# Per-point jitter breaks the perfectly regular lattice. A regular point grid
-	# beats against the pixel grid and produces screen-locked moire stripes that
-	# move with the camera and survive every camera/post fix. Seeded = reproducible.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 1337
+	var dtheta := PI / float(grid_h - 1)
+	var dphi   := TAU / float(grid_w - 1)
 	var i := 0
 	for zz in range(grid_h):
-		# Progressive X-drift: 3 column-widths over full depth.
-		# Prevents identical q.x sampling along screen-columns (wave-phase lock),
-		# which caused systematic dark vertical stripes when dir=(0,1).
-		var x_drift := (float(zz) / float(grid_h - 1)) * col_spacing * 3.0
+		var theta := float(zz) * dtheta
 		for xx in range(grid_w):
-			var jx := rng.randf_range(-0.5, 0.5) * col_spacing
-			var jz := rng.randf_range(-0.4, 0.4) * row_spacing
-			var fx := (float(xx) / float(grid_w - 1) - 0.5) * span_x + x_drift + jx
-			var fz := (float(zz) / float(grid_h - 1) - 0.5) * span_z + jz
-			_verts[i] = Vector3(fx, 0.0, fz)
+			var phi := float(xx) * dphi
+			var jt := rng.randf_range(-0.5, 0.5) * dtheta
+			var jp := rng.randf_range(-0.4, 0.4) * dphi
+			var t := clampf(theta + jt, 0.001, PI - 0.001)
+			var p := phi + jp
+			_verts[i] = Vector3(sin(t) * cos(p), cos(t), sin(t) * sin(p)) * sphere_radius
 			i += 1
 
 	var arrays := []
@@ -61,7 +58,8 @@ func _build_points() -> void:
 	var am := ArrayMesh.new()
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, arrays)
 	mesh = am
-	custom_aabb = AABB(Vector3(-span_x * 0.6, -40.0, -span_z * 0.6), Vector3(span_x * 1.2, 80.0, span_z * 1.2))
+	var r := sphere_radius * 1.3
+	custom_aabb = AABB(Vector3(-r, -r, -r), Vector3(r * 2.0, r * 2.0, r * 2.0))
 
 
 func _build_wire() -> void:
@@ -85,16 +83,16 @@ func _build_wire() -> void:
 		wire.material_override = wmat
 		parent.add_child(wire)
 
-	# Linien-Index-Puffer aufbauen (horizontale + vertikale Verbindungen).
+	# Linien-Index-Puffer: Breitenkreise (phi-Ringe, geschlossen) + Meridiane.
 	var w := grid_w
 	var h := grid_h
 	var indices := PackedInt32Array()
-	indices.resize(2 * ((w - 1) * h + w * (h - 1)))
+	indices.resize(2 * (w * h + w * (h - 1)))
 	var out := 0
 	for z in range(h):
-		for x in range(w - 1):
-			indices[out] = z * w + x;       out += 1
-			indices[out] = z * w + x + 1;   out += 1
+		for x in range(w):
+			indices[out] = z * w + x;           out += 1
+			indices[out] = z * w + (x + 1) % w; out += 1
 	for z in range(h - 1):
 		for x in range(w):
 			indices[out] = z * w + x;       out += 1
@@ -107,5 +105,6 @@ func _build_wire() -> void:
 	var wm := ArrayMesh.new()
 	wm.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
 	wire.mesh = wm
-	wire.custom_aabb = custom_aabb
-	print("Particle Wave: %d Punkte, %d Liniensegmente" % [grid_w * grid_h, indices.size() / 2])
+	var r := sphere_radius * 1.3
+	wire.custom_aabb = AABB(Vector3(-r, -r, -r), Vector3(r * 2.0, r * 2.0, r * 2.0))
+	print("Particle Wave sphere: %d Punkte, %d Liniensegmente" % [grid_w * grid_h, indices.size() / 2])

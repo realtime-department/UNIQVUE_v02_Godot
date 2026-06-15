@@ -15,7 +15,7 @@ varying vec2  v_uv;
 varying float v_depth;
 
 void vertex() {
-	v_uv = UV;
+	v_uv = vec2(UV.x, 1.0 - UV.y);  // Godot PlaneMesh UV.y=0→far vs THREE.js UV.y=0→near; also compensates for texGround flipY=true
 	vec4 vp  = VIEW_MATRIX * MODEL_MATRIX * vec4(VERTEX, 1.0);
 	v_depth  = -vp.z;
 	POSITION = PROJECTION_MATRIX * vp;

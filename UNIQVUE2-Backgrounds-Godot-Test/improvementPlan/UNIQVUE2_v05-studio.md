@@ -225,7 +225,7 @@ Studio-Parität-Erweiterung darüber.
   Glow-Formel, Grid-Zentrierung, Kamera-Semantik).
 - **S6 (separater Track) — Restliche 5 Module portieren (G8).** Eins nach dem anderen.
 
-Reihenfolge ist hart: S0 lieferte die globalen Uniforms (✅), ohne die S1/S3 keine
+Reihenfolge ist hart: S0 lieferte die globalen Uniforms (✅), ohne die S1/S3 keinew
 Farb-Zone hätten; S2 liefert die Param-Map, ohne die S4 nichts morphen kann.
 
 ---
@@ -249,7 +249,7 @@ Farb-Zone hätten; S2 liefert die Param-Map, ohne die S4 nichts morphen kann.
 
 - **Global Shader Uniforms** müssen in `project.godot` unter `[shader_globals]`
   deklariert sein, bevor Shader sie als `global uniform` lesen — sonst stiller Fehler.
-  (In S0 erledigt.)
+  (In S0 erledigt.) 
 - **Farbraum:** Globals sind als `color` deklariert + Shader-Uniforms mit
   `: source_color` → genau EINE sRGB→linear-Wandlung an der Shader-Grenze. `Style`
   hält & liefert sRGB; **nie vorab konvertieren**. Sollte das in 4.6.1 doppelt
