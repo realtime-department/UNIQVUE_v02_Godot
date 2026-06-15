@@ -137,7 +137,7 @@ func _do_gpu(r: Dictionary) -> void:
 	], out, false, false)
 
 	if ret == 0 and not out.is_empty():
-		var p := _csv(out[0])
+		var p := _csv(out[0] as String)
 		if p.size() >= 9:
 			r["gpu_name"]  = p[0].replace("NVIDIA GeForce ", "").replace("NVIDIA ", "")
 			r["gpu_load"]  = p[1].to_float()
@@ -157,7 +157,7 @@ func _do_gpu(r: Dictionary) -> void:
 	if OS.execute("powershell.exe",
 			["-NonInteractive", "-NoProfile", "-ExecutionPolicy", "Bypass",
 			 "-Command", cmd], fb, false, false) == 0 and not fb.is_empty():
-		var p2 := fb[0].strip_edges().split("|")
+		var p2 := (fb[0] as String).strip_edges().split("|")
 		if p2.size() >= 2:
 			r["gpu_name"]  = p2[0].strip_edges()
 			r["gpu_vtot"]  = p2[1].strip_edges().to_int()
@@ -181,7 +181,7 @@ func _do_cpu_ram(r: Dictionary) -> void:
 			 "-Command", cmd], out, false, false) != 0 or out.is_empty():
 		return
 
-	var p := out[0].strip_edges().split("|")
+	var p := (out[0] as String).strip_edges().split("|")
 	if p.size() < 6:
 		return
 
