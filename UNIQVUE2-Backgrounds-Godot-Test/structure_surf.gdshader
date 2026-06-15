@@ -17,7 +17,7 @@ varying float v_depth;
 varying float v_wx;
 
 void vertex() {
-	v_uv = UV;
+	v_uv = vec2(UV.x, 1.0 - UV.y);  // flip Y: THREE.js (bottom-left) → Godot (top-left) convention
 	vec4 wp = MODEL_MATRIX * vec4(VERTEX, 1.0);
 	v_wx = wp.x;
 	vec4 vp = VIEW_MATRIX * wp;

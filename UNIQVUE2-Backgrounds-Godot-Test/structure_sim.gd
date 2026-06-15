@@ -252,6 +252,8 @@ func _process(delta: float) -> void:
 
 
 func _update_blocks() -> void:
+	if _struct_mm == null:
+		return
 	var span  := float(NBLOCKS) * _seg_len
 	var halfd := _tile_d * 0.5
 	var front := CAM_Z + halfd + 150.0
