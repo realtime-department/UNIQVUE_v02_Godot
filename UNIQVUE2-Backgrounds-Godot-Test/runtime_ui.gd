@@ -848,6 +848,33 @@ func _build_stage_config(parent: Node) -> void:
 	black_row.add_child(black_btn)
 	body.add_child(black_row)
 
+	# --- HDR / Rec.709 toggle ---
+	var hdr_row := HBoxContainer.new()
+	hdr_row.add_theme_constant_override("separation", 6)
+	hdr_row.add_child(_cfg_label("tonemap"))
+	var hdr_stage := get_node_or_null("/root/BackgroundStage")
+	var hdr_on: bool = hdr_stage.call("get_hdr_mode") if hdr_stage != null else true
+	var hdr_btn := Button.new()
+	hdr_btn.text = "ACES" if hdr_on else "REC 709"
+	hdr_btn.toggle_mode = true
+	hdr_btn.button_pressed = hdr_on
+	hdr_btn.flat = true
+	hdr_btn.add_theme_font_size_override("font_size", 11)
+	hdr_btn.add_theme_color_override("font_color", Color.WHITE)
+	hdr_btn.add_theme_stylebox_override("normal", _button_style(0.0))
+	hdr_btn.add_theme_stylebox_override("hover", _button_style(0.12))
+	hdr_btn.add_theme_stylebox_override("pressed", _button_style(0.3))
+	hdr_btn.add_theme_stylebox_override("focus", _button_style(0.0))
+	hdr_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hdr_btn.custom_minimum_size = Vector2(0, 26)
+	hdr_row.add_child(hdr_btn)
+	body.add_child(hdr_row)
+	hdr_btn.toggled.connect(func(pressed: bool) -> void:
+		var st := get_node_or_null("/root/BackgroundStage")
+		if st != null:
+			st.call("set_hdr_mode", pressed)
+		hdr_btn.text = "ACES" if pressed else "REC 709")
+
 
 ## Globaler STYLE-Bereich: die 8 Palettenfarben als gestapelte Swatch-Zeilen
 ## (Name links, breiter Farbbalken rechts), in zwei beschriftete Gruppen geteilt.
