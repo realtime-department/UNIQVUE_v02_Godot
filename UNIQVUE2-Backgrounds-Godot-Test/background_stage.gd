@@ -37,7 +37,7 @@ const SCENES := [
 const SCENE_LABELS := ["Tunnel", "Wave", "Stripes", "Lines", "Plexus", "Cubic", "Structure"]
 const TRANSITION_TIME := 1.2   # Default; zur Laufzeit ueber transition_time anpassbar.
 const ZOOM_SPAN := 2.0   # Symmetrischer Zoom-Hub: alt 1->ZOOM_SPAN, neu ZOOM_SPAN->1.
-                         # Beide bleiben >= 1 -> stets volle Deckung (nie schwarze Raender).
+						 # Beide bleiben >= 1 -> stets volle Deckung (nie schwarze Raender).
 
 # Laufzeit-Dauer der Transition (Sekunden); per RuntimeUI-Zahlenfeld einstellbar.
 var transition_time := TRANSITION_TIME
@@ -73,14 +73,14 @@ uniform bool aces_enabled = true;
 vec3 aces(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void fragment() {
-	vec3 c = aces_enabled ? aces(texture(TEXTURE, UV).rgb) : clamp(texture(TEXTURE, UV).rgb, 0.0, 1.0);
+	vec3 c = aces_enabled ? aces(texture(TEXTURE, UV).rgb) : texture(TEXTURE, UV).rgb;
 	float d = distance(UV, vec2(0.5));
 	float vig = smoothstep(0.25, 0.72, d);
 	c *= 1.0 - vig * vignette;
 	float g = hash(fract(UV * vec2(640.0, 360.0)) + TIME * 0.37) - 0.5;
 	float lum = dot(c, vec3(0.299, 0.587, 0.114));
 	c += g * grain * (1.0 + (1.0 - lum) * 1.5);
-	COLOR = vec4(clamp(c, 0.0, 1.0), 1.0);
+	COLOR = vec4(aces_enabled ? clamp(c, 0.0, 1.0) : max(c, 0.0), 1.0);
 }"
 
 var _vps: Array[SubViewport] = []
@@ -272,14 +272,18 @@ func post_overlay() -> ShaderMaterial:
 
 func set_hdr_mode(enabled: bool) -> void:
 	if _overlay_mat != null:
-		_overlay_mat.set_shader_parameter("aces_enabled", enabled)
+		_overlay_mat.set_shader_parameter("aces_enabled", not enabled)
+	get_viewport().use_hdr_2d = enabled
+	if DisplayServer.has_method("window_is_hdr_output_supported") \
+			and DisplayServer.call("window_is_hdr_output_supported"):
+		DisplayServer.call("window_request_hdr_output", enabled)
 
 
 func get_hdr_mode() -> bool:
 	if _overlay_mat == null:
-		return true
+		return false
 	var v: Variant = _overlay_mat.get_shader_parameter("aces_enabled")
-	return bool(v) if v != null else true
+	return not (bool(v) if v != null else true)
 
 
 ## Master dim/blackout alpha (0=transparent, 1=fully black). For broadcast cuts.
