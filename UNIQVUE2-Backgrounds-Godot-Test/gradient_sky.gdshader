@@ -13,6 +13,12 @@ global uniform vec4  sky_horizon    : source_color;
 global uniform vec4  sky_ground_mid : source_color;
 global uniform vec4  sky_ground     : source_color;
 global uniform float sky_viewport_h = 1080.0;
+global uniform float sky_dither_enable = 0.0;
+
+// Interleaved Gradient Noise — blue-noise-like spatial pattern (Jimenez 2014).
+float _ign(vec2 p) {
+	return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+}
 
 void sky() {
 	// Screen-space vertical: t = 1 oben (Zenit), t = 0 unten (Boden).
@@ -28,5 +34,6 @@ void sky() {
 	} else {
 		c = mix(sky_ground.rgb, sky_ground_mid.rgb, smoothstep(0.0, 0.25, t));
 	}
+	c += (_ign(FRAGCOORD.xy) - 0.5) * (1.0 / 255.0) * sky_dither_enable;
 	COLOR = c;
 }
