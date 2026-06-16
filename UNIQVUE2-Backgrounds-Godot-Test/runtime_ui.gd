@@ -853,9 +853,9 @@ func _build_stage_config(parent: Node) -> void:
 	hdr_row.add_theme_constant_override("separation", 6)
 	hdr_row.add_child(_cfg_label("tonemap"))
 	var hdr_stage := get_node_or_null("/root/BackgroundStage")
-	var hdr_on: bool = hdr_stage.call("get_hdr_mode") if hdr_stage != null else true
+	var hdr_on: bool = hdr_stage.call("get_hdr_mode") if hdr_stage != null else false
 	var hdr_btn := Button.new()
-	hdr_btn.text = "ACES" if hdr_on else "REC 709"
+	hdr_btn.text = "HDR" if hdr_on else "SDR"
 	hdr_btn.toggle_mode = true
 	hdr_btn.button_pressed = hdr_on
 	hdr_btn.flat = true
@@ -873,7 +873,7 @@ func _build_stage_config(parent: Node) -> void:
 		var st := get_node_or_null("/root/BackgroundStage")
 		if st != null:
 			st.call("set_hdr_mode", pressed)
-		hdr_btn.text = "ACES" if pressed else "REC 709")
+		hdr_btn.text = "HDR" if pressed else "SDR")
 
 
 ## Globaler STYLE-Bereich: die 8 Palettenfarben als gestapelte Swatch-Zeilen
