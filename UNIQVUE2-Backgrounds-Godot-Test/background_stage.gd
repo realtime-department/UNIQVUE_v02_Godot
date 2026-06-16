@@ -69,10 +69,11 @@ void fragment() {
 const OVERLAY_SHADER := "shader_type canvas_item;
 uniform float vignette : hint_range(0.0, 1.0) = 0.5;
 uniform float grain : hint_range(0.0, 0.3) = 0.0;
+uniform bool aces_enabled = true;
 vec3 aces(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void fragment() {
-	vec3 c = aces(texture(TEXTURE, UV).rgb);
+	vec3 c = aces_enabled ? aces(texture(TEXTURE, UV).rgb) : clamp(texture(TEXTURE, UV).rgb, 0.0, 1.0);
 	float d = distance(UV, vec2(0.5));
 	float vig = smoothstep(0.25, 0.72, d);
 	c *= 1.0 - vig * vignette;
@@ -267,6 +268,18 @@ func post_environment() -> Environment:
 # Overlay-Material (Vignette/Grain) — vom RuntimeUI-Panel als POST-Regler genutzt.
 func post_overlay() -> ShaderMaterial:
 	return _overlay_mat
+
+
+func set_hdr_mode(enabled: bool) -> void:
+	if _overlay_mat != null:
+		_overlay_mat.set_shader_parameter("aces_enabled", enabled)
+
+
+func get_hdr_mode() -> bool:
+	if _overlay_mat == null:
+		return true
+	var v: Variant = _overlay_mat.get_shader_parameter("aces_enabled")
+	return bool(v) if v != null else true
 
 
 ## Master dim/blackout alpha (0=transparent, 1=fully black). For broadcast cuts.
