@@ -6,6 +6,8 @@ extends MeshInstance3D
 ## Dichte-Aenderung: particle_wave_root.gd ruft set_density() auf, wenn das
 ## 'density'-Export aendert.
 
+const _WIRE_SHADER := preload("res://wave_wire.gdshader")
+
 var grid_w: int = 220
 var grid_h: int = 220
 var span_x: float = 320.0
@@ -15,7 +17,8 @@ var _verts: PackedVector3Array   # geteilt zwischen Punkt- und Linien-Gitter
 
 
 func _ready() -> void:
-	_build()
+	_build_points()
+	_build_wire.call_deferred()
 
 
 ## Von particle_wave_root.density-Setter aufgerufen. Rebuild des Punkt- und
@@ -76,11 +79,8 @@ func _build_wire() -> void:
 	if wire == null:
 		wire = MeshInstance3D.new()
 		wire.name = "Wire"
-		var wshader: Shader = load("res://wave_wire.gdshader")
-		if wshader == null:
-			return
 		var wmat := ShaderMaterial.new()
-		wmat.shader = wshader
+		wmat.shader = _WIRE_SHADER
 		wmat.set_shader_parameter("wire_opacity", 0.35)
 		wire.material_override = wmat
 		parent.add_child(wire)
