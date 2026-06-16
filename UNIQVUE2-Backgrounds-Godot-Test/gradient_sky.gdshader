@@ -15,17 +15,11 @@ global uniform vec4  sky_ground     : source_color;
 global uniform float sky_viewport_h = 1080.0;
 global uniform float sky_dither_enable = 0.0;
 
-// 4×4 Bayer ordered dither — purely spatial, zero temporal variation.
-// Uses floor() to be immune to TAA sub-pixel jitter.
-float _bayer4(vec2 p) {
-	const float M[16] = {
-		 0.0,  8.0,  2.0, 10.0,
-		12.0,  4.0, 14.0,  6.0,
-		 3.0, 11.0,  1.0,  9.0,
-		15.0,  7.0, 13.0,  5.0
-	};
-	int i = int(mod(p.y, 4.0)) * 4 + int(mod(p.x, 4.0));
-	return M[i] / 16.0 - 0.5;
+// IGN (Jimenez 2014) on floored integer coords — organic noise distribution,
+// immune to TAA sub-pixel jitter because floor() discards the fractional offset.
+float _ign(vec2 p) {
+	p = floor(p);
+	return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
 }
 
 void sky() {
@@ -42,6 +36,6 @@ void sky() {
 	} else {
 		c = mix(sky_ground.rgb, sky_ground_mid.rgb, smoothstep(0.0, 0.25, t));
 	}
-	c += _bayer4(floor(FRAGCOORD.xy)) * (1.0 / 255.0) * sky_dither_enable;
+	c += (_ign(FRAGCOORD.xy) - 0.5) * (1.0 / 255.0) * sky_dither_enable;
 	COLOR = c;
 }
