@@ -60,8 +60,8 @@ var _fps_label: Label
 var _fps_timer: float = 0.0
 # Anti-Aliasing-Stufe (ueberlebt Szenen-Neuaufbau).
 var _aa_index: int = 0
-# Blue-noise-Dithering fuer Style-Gradient (ueberlebt Szenen-Neuaufbau).
-var _dither_enabled: bool = false
+# Blue-noise-Dithering-Staerke fuer Style-Gradient (ueberlebt Szenen-Neuaufbau).
+var _dither_strength: float = 0.0
 
 
 func _ready() -> void:
@@ -310,24 +310,16 @@ func _populate(root: Node) -> void:
 				_aa_index += 1
 				aa_lbl.text = AA_MODES[_aa_index][0]
 				_apply_aa(get_viewport()))
-		# Dither-Checkbox (blue-noise fuer Style-Gradient).
-		var dither_row := HBoxContainer.new()
-		dither_row.add_theme_constant_override("separation", 4)
-		var dither_lbl := Label.new()
-		dither_lbl.text = "Dither"
-		dither_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		dither_lbl.add_theme_font_size_override("font_size", 11)
-		dither_lbl.add_theme_color_override("font_color", COL_MUTED)
-		var dither_chk := CheckBox.new()
-		dither_chk.button_pressed = _dither_enabled
-		dither_chk.add_theme_font_size_override("font_size", 11)
-		dither_chk.add_theme_color_override("font_color", Color.WHITE)
-		dither_row.add_child(dither_lbl)
-		dither_row.add_child(dither_chk)
-		post_body.add_child(dither_row)
-		dither_chk.toggled.connect(func(on: bool) -> void:
-			_dither_enabled = on
-			RenderingServer.global_shader_parameter_set(&"sky_dither_enable", 1.0 if on else 0.0))
+		# Dither-Slider (blue-noise-Staerke fuer Style-Gradient).
+		var dither_row := _make_row(post_body, "Dither")
+		var dither_s := _make_slider(0.0, 4.0, 0.1, _dither_strength)
+		var dither_v := _make_value_label(_dither_strength, false)
+		dither_row.add_child(dither_s)
+		dither_row.add_child(dither_v)
+		dither_s.value_changed.connect(func(value: float) -> void:
+			_dither_strength = value
+			dither_v.text = "%.2f" % value
+			RenderingServer.global_shader_parameter_set(&"sky_dither_enable", value))
 
 	# Leere Sektionen entfernen (z.B. Material-Kopf, dessen Uniforms alle gruppiert
 	# sind -> der Kopf-Body bleibt leer).
