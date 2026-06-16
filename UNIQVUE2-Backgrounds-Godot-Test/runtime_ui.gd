@@ -30,6 +30,17 @@ const POST_PARAMS := [
 
 const SHAPE_NAMES := ["Dot", "Ring", "Square", "Star", "Cross"]
 
+# [label, msaa_3d, screen_space_aa, use_taa]
+const AA_MODES := [
+	["None",   Viewport.MSAA_DISABLED, Viewport.SCREEN_SPACE_AA_DISABLED, false],
+	["FXAA",   Viewport.MSAA_DISABLED, Viewport.SCREEN_SPACE_AA_FXAA,     false],
+	["2×",     Viewport.MSAA_2X,       Viewport.SCREEN_SPACE_AA_DISABLED, false],
+	["4×",     Viewport.MSAA_4X,       Viewport.SCREEN_SPACE_AA_DISABLED, false],
+	["8×",     Viewport.MSAA_8X,       Viewport.SCREEN_SPACE_AA_DISABLED, false],
+	["TAA",    Viewport.MSAA_DISABLED, Viewport.SCREEN_SPACE_AA_DISABLED, true],
+	["TAA+2×", Viewport.MSAA_2X,       Viewport.SCREEN_SPACE_AA_DISABLED, true],
+]
+
 var _panel: PanelContainer
 var _title: Label
 var _rows: VBoxContainer
@@ -47,6 +58,8 @@ var _seq_status: Label
 var _fps_label: Label
 # FPS-Aktualisierungs-Zaehler.
 var _fps_timer: float = 0.0
+# Anti-Aliasing-Stufe (ueberlebt Szenen-Neuaufbau).
+var _aa_index: int = 0
 
 
 func _ready() -> void:
@@ -265,6 +278,36 @@ func _populate(root: Node) -> void:
 		full_btn.pressed.connect(func() -> void:
 			if stage != null:
 				stage.call("clear_render_size_override"))
+		# Anti-Aliasing (None → 2× → 4× → 8×).
+		var aa_row := HBoxContainer.new()
+		aa_row.add_theme_constant_override("separation", 4)
+		var aa_dec := _cfg_button("◀")
+		aa_dec.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		aa_dec.custom_minimum_size = Vector2(28, 26)
+		var aa_lbl := Label.new()
+		aa_lbl.text = AA_MODES[_aa_index][0]
+		aa_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		aa_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		aa_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		aa_lbl.add_theme_font_size_override("font_size", 11)
+		aa_lbl.add_theme_color_override("font_color", Color.WHITE)
+		var aa_inc := _cfg_button("▶")
+		aa_inc.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		aa_inc.custom_minimum_size = Vector2(28, 26)
+		aa_row.add_child(aa_dec)
+		aa_row.add_child(aa_lbl)
+		aa_row.add_child(aa_inc)
+		post_body.add_child(aa_row)
+		aa_dec.pressed.connect(func() -> void:
+			if _aa_index > 0:
+				_aa_index -= 1
+				aa_lbl.text = AA_MODES[_aa_index][0]
+				_apply_aa(get_viewport()))
+		aa_inc.pressed.connect(func() -> void:
+			if _aa_index < AA_MODES.size() - 1:
+				_aa_index += 1
+				aa_lbl.text = AA_MODES[_aa_index][0]
+				_apply_aa(get_viewport()))
 
 	# Leere Sektionen entfernen (z.B. Material-Kopf, dessen Uniforms alle gruppiert
 	# sind -> der Kopf-Body bleibt leer).
@@ -1283,6 +1326,13 @@ func _cfg_spin(mn: float, mx: float, st: float, val: Variant) -> SpinBox:
 	s.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	s.custom_minimum_size = Vector2(56, 0)
 	return s
+
+
+func _apply_aa(_vp: Viewport) -> void:
+	var m: Array = AA_MODES[_aa_index]
+	var stage := get_node_or_null("/root/BackgroundStage")
+	if stage != null:
+		stage.call("set_antialiasing", m[1], m[2], m[3])
 
 
 func _cfg_button(text: String) -> Button:

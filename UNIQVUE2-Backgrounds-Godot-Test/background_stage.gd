@@ -72,6 +72,7 @@ uniform float grain : hint_range(0.0, 0.3) = 0.0;
 uniform bool aces_enabled = true;
 vec3 aces(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float ign(vec2 p) { p += fract(TIME * 0.61803398875) * 437.585453; return fract(52.9829189 * fract(0.06711056 * p.x + 0.00583715 * p.y)); }
 void fragment() {
 	vec3 c = aces_enabled ? aces(texture(TEXTURE, UV).rgb) : texture(TEXTURE, UV).rgb;
 	float d = distance(UV, vec2(0.5));
@@ -80,6 +81,7 @@ void fragment() {
 	float g = hash(fract(UV * vec2(640.0, 360.0)) + TIME * 0.37) - 0.5;
 	float lum = dot(c, vec3(0.299, 0.587, 0.114));
 	c += g * grain * (1.0 + (1.0 - lum) * 1.5);
+	c += (ign(FRAGCOORD.xy) - 0.5) * (1.0 / 255.0);
 	COLOR = vec4(aces_enabled ? clamp(c, 0.0, 1.0) : max(c, 0.0), 1.0);
 }"
 
@@ -305,6 +307,17 @@ func set_render_size_override(s: Vector2i) -> void:
 func clear_render_size_override() -> void:
 	_forced_size = Vector2i.ZERO
 	_apply_vp_size()
+
+
+func set_antialiasing(msaa: int, ssaa: int, taa: bool) -> void:
+	for vp in _vps:
+		vp.msaa_3d         = msaa
+		vp.screen_space_aa = ssaa
+		vp.use_taa         = taa
+	if _master != null:
+		_master.msaa_3d         = msaa
+		_master.screen_space_aa = ssaa
+		_master.use_taa         = taa
 
 
 func _apply_vp_size() -> void:
