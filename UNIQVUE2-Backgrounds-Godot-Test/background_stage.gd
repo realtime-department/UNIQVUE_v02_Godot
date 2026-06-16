@@ -69,10 +69,14 @@ void fragment() {
 const OVERLAY_SHADER := "shader_type canvas_item;
 uniform float vignette : hint_range(0.0, 1.0) = 0.5;
 uniform float grain : hint_range(0.0, 0.3) = 0.0;
+uniform float deband : hint_range(0.0, 4.0) = 1.0;
 uniform bool aces_enabled = true;
 vec3 aces(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float ign(vec2 p) { p += fract(TIME * 0.61803398875) * 437.585453; return fract(52.9829189 * fract(0.06711056 * p.x + 0.00583715 * p.y)); }
+// STATISCHE IGN auf gefloorten Pixelkoordinaten — KEIN TIME-Term. Dieser
+// Present-Pass laeuft hinter dem TAA-Resolve, also flackert statisches
+// Screen-Space-Rauschen nicht. Animiert man es (wie der Grain), kriecht es.
+float ign(vec2 p) { p = floor(p); return fract(52.9829189 * fract(0.06711056 * p.x + 0.00583715 * p.y)); }
 void fragment() {
 	vec3 c = aces_enabled ? aces(texture(TEXTURE, UV).rgb) : texture(TEXTURE, UV).rgb;
 	float d = distance(UV, vec2(0.5));
@@ -81,7 +85,10 @@ void fragment() {
 	float g = hash(fract(UV * vec2(640.0, 360.0)) + TIME * 0.37) - 0.5;
 	float lum = dot(c, vec3(0.299, 0.587, 0.114));
 	c += g * grain * (1.0 + (1.0 - lum) * 1.5);
-	c += (ign(FRAGCOORD.xy) - 0.5) * (1.0 / 255.0);
+	// Triangular-PDF-Dither (zwei dekorrelierte IGN-Samples) gegen 8-Bit-Banding
+	// des finalen Outputs. 'deband' = Amplitude in LSB (1.0 = +/-1 LSB).
+	float tri = ign(FRAGCOORD.xy) + ign(FRAGCOORD.xy + vec2(11.0, 23.0)) - 1.0;
+	c += tri * (deband / 255.0);
 	COLOR = vec4(aces_enabled ? clamp(c, 0.0, 1.0) : max(c, 0.0), 1.0);
 }"
 
@@ -145,6 +152,8 @@ func _ready() -> void:
 		vp.own_world_3d = true
 		vp.transparent_bg = false
 		vp.size = vp_size
+		vp.use_hdr_2d = true  # FP16-Target: Gradient bleibt bis zum Present-Pass
+		                      # ungequantelt -> kein 8-Bit-Banding vor dem Compositing.
 		vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
 		add_child(vp)
 		_vps.append(vp)
@@ -174,6 +183,7 @@ func _ready() -> void:
 	_overlay_mat.shader = osh
 	_overlay_mat.set_shader_parameter("vignette", 0.5)
 	_overlay_mat.set_shader_parameter("grain", 0.0)
+	_overlay_mat.set_shader_parameter("deband", 1.0)
 
 	_final = TextureRect.new()
 	_final.texture = _master.get_texture()
@@ -307,6 +317,13 @@ func set_render_size_override(s: Vector2i) -> void:
 func clear_render_size_override() -> void:
 	_forced_size = Vector2i.ZERO
 	_apply_vp_size()
+
+
+## Debanding-Staerke des finalen Present-Pass in LSB (0 = aus, 1 = +/-1 LSB).
+## Statisches Triangular-PDF-Dither hinter dem TAA-Resolve -> flicker-frei.
+func set_deband(value: float) -> void:
+	if _overlay_mat != null:
+		_overlay_mat.set_shader_parameter("deband", value)
 
 
 func set_antialiasing(msaa: int, ssaa: int, taa: bool) -> void:
