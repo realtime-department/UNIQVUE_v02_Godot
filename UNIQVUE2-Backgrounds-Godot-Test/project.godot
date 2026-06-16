@@ -78,3 +78,7 @@ sky_viewport_h={
 "type": "float",
 "value": 1080.0
 }
+sky_dither_enable={
+"type": "float",
+"value": 0.0
+}
