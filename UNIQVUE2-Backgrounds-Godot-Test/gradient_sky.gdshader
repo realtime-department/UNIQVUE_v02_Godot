@@ -13,15 +13,13 @@ global uniform vec4  sky_horizon    : source_color;
 global uniform vec4  sky_ground_mid : source_color;
 global uniform vec4  sky_ground     : source_color;
 global uniform float sky_viewport_h = 1080.0;
-global uniform float sky_dither_enable = 0.0;
 
-// IGN (Jimenez 2014) on floored integer coords — organic noise distribution,
-// immune to TAA sub-pixel jitter because floor() discards the fractional offset.
-float _ign(vec2 p) {
-	p = floor(p);
-	return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
-}
-
+// Kein Dithering hier: dieser Pass laeuft IM TAA-Viewport (_vps). Statisches
+// Screen-Space-Rauschen wird vom TAA-Resolve als Detail interpretiert und
+// "kriecht" -> Flackern. Debanding passiert flicker-frei im Overlay-Present-
+// Pass (background_stage.gd OVERLAY_SHADER), hinter dem TAA-Resolve. Der
+// Gradient bleibt bis dahin in HDR (_vps.use_hdr_2d), also entsteht hier
+// keine 8-Bit-Quantisierung, die gedithert werden muesste.
 void sky() {
 	// Screen-space vertical: t = 1 oben (Zenit), t = 0 unten (Boden).
 	// FRAGCOORD.y = 0 ist oben (Vulkan/Forward+-Konvention).
@@ -36,6 +34,5 @@ void sky() {
 	} else {
 		c = mix(sky_ground.rgb, sky_ground_mid.rgb, smoothstep(0.0, 0.25, t));
 	}
-	c += (_ign(FRAGCOORD.xy) - 0.5) * (1.0 / 255.0) * sky_dither_enable;
 	COLOR = c;
 }

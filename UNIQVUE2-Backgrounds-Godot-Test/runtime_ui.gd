@@ -60,8 +60,8 @@ var _fps_label: Label
 var _fps_timer: float = 0.0
 # Anti-Aliasing-Stufe (ueberlebt Szenen-Neuaufbau).
 var _aa_index: int = 0
-# Blue-noise-Dithering-Staerke fuer Style-Gradient (ueberlebt Szenen-Neuaufbau).
-var _dither_strength: float = 0.0
+# Debanding-Staerke (LSB) fuer den finalen Present-Pass (ueberlebt Szenen-Neuaufbau).
+var _dither_strength: float = 1.0
 
 
 func _ready() -> void:
@@ -319,7 +319,9 @@ func _populate(root: Node) -> void:
 		dither_s.value_changed.connect(func(value: float) -> void:
 			_dither_strength = value
 			dither_v.text = "%.2f" % value
-			RenderingServer.global_shader_parameter_set(&"sky_dither_enable", value))
+			var st := get_node_or_null("/root/BackgroundStage")
+			if st != null:
+				st.call("set_deband", value))
 
 	# Leere Sektionen entfernen (z.B. Material-Kopf, dessen Uniforms alle gruppiert
 	# sind -> der Kopf-Body bleibt leer).
