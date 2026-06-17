@@ -45,8 +45,10 @@ extends Node3D
 
 const RIB_W := 130.0
 const RIB_D := 16.0
-const SEG_X := 420
-const SEG_Z := 28
+# Subdivision: leicht reduziert ggü. 420x28 (=564k Prim. bei 24 Instanzen).
+# 300x24 -> 14.400 Tris/Instanz; bei Default-Sichtbarkeit (~5 Instanzen) ~72k.
+const SEG_X := 300
+const SEG_Z := 24
 const MAX_LAYERS := 6
 const MAX_GROUPS := 4
 
@@ -111,12 +113,17 @@ func _update_cloth() -> void:
 	var l_mid := (l_count - 1.0) * 0.5
 	var g_mid := (g_count - 1.0) * 0.5
 
-	for g in MAX_GROUPS:
+	# Nur aktive Layer/Gruppen rendern. Inaktive Instanzen hatten fade=0 (Alpha 0)
+	# und waren unsichtbar, wurden aber voll gerastert -> reine Verschwendung.
+	# ceil() erfasst die fraktionale letzte Lage/Gruppe (weicher Einblend-Fade).
+	var active_g := int(ceil(g_count))
+	var active_l := int(ceil(l_count))
+	var write := 0  # kompakter Buffer-Index; Reihenfolge bleibt hinten -> vorne
+	for g in active_g:
 		var g_fade := clampf(g_count - float(g), 0.0, 1.0)
 		var group_y := (float(g) - g_mid) * group_gap
 		var group_phase := float(g + 1) * 3.91 * group_vary
-		for l in MAX_LAYERS:
-			var idx := g * MAX_LAYERS + l   # = renderOrder im Web (hinten -> vorne)
+		for l in active_l:
 			var l_fade := clampf(l_count - float(l), 0.0, 1.0)
 			var fade := g_fade * l_fade
 			var stack := float(l) - l_mid
@@ -124,5 +131,7 @@ func _update_cloth() -> void:
 			var tr := Transform3D.IDENTITY
 			# Layer-Stack + Gruppen-Versatz + globaler Hoehen-Offset (uYOff*6 im Web).
 			tr.origin = Vector3(0.0, stack * y_spread + y_off * 6.0 + group_y, stack * 1.1)
-			_mm.set_instance_transform(idx, tr)
-			_mm.set_instance_custom_data(idx, Color(phase, fade, 0.0, 0.0))
+			_mm.set_instance_transform(write, tr)
+			_mm.set_instance_custom_data(write, Color(phase, fade, 0.0, 0.0))
+			write += 1
+	_mm.visible_instance_count = write
