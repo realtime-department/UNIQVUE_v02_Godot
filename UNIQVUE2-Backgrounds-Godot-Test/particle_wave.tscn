@@ -55,3 +55,8 @@ far = 300.0
 [node name="Grid" type="MeshInstance3D" parent="."]
 material_override = SubResource("ShaderMaterial_wave")
 script = ExtResource("1_grid")
+
+[node name="GridTop" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, -1, 0, 0, 0, 1, 0, 0, 0)
+material_override = SubResource("ShaderMaterial_wave")
+script = ExtResource("1_grid")

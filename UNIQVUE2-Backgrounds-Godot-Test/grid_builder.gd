@@ -75,10 +75,12 @@ func _build_wire() -> void:
 		return
 
 	# Wire-Knoten suchen oder anlegen.
-	var wire := parent.get_node_or_null("Wire") as MeshInstance3D
+	var wire_name := name + "Wire"
+	var wire := parent.get_node_or_null(wire_name) as MeshInstance3D
 	if wire == null:
 		wire = MeshInstance3D.new()
-		wire.name = "Wire"
+		wire.name = wire_name
+		wire.transform = transform  # inherit Y-flip (or identity) from this grid node
 		var wmat := ShaderMaterial.new()
 		wmat.shader = _WIRE_SHADER
 		wmat.set_shader_parameter("wire_opacity", 0.35)
