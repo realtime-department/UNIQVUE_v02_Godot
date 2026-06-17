@@ -164,39 +164,85 @@ func _do_gpu(r: Dictionary) -> void:
 
 
 func _do_cpu_ram(r: Dictionary) -> void:
+	# --- Baseline from Godot built-ins: instant, no subprocess, cannot fail or be
+	# blocked by execution policy. This GUARANTEES the CPU name + RAM rows are
+	# always readable even if the WMI query below errors, returns empty, or
+	# PowerShell is unavailable on the deploy machine. WMI then only *refines*
+	# the live metrics (load / clock / temperature) on top of this.
+	var cname := OS.get_processor_name().strip_edges()
+	if "@" in cname:
+		cname = cname.split("@")[0].strip_edges()
+	r["cpu_name"] = cname
+
+	var mem := OS.get_memory_info()           # values are bytes
+	var phys := int(mem.get("physical", -1))
+	var avail := int(mem.get("available", -1))
+	if avail < 0:
+		avail = int(mem.get("free", -1))     # "available" is -1 on some builds; fall back
+	if phys > 0:
+		r["ram_total"] = phys
+		if avail >= 0:
+			r["ram_used"] = phys - avail     # "in use" ~= total - available
+
+	# --- Live metrics via WMI: CPU load / clock / temperature + authoritative RAM.
+	# Two robustness details that were silently breaking this (both verified):
+	#   1. $ProgressPreference='SilentlyContinue' — CIM cmdlets emit progress records
+	#      that PowerShell serializes to stdout as a "#< CLIXML ..." blob, which
+	#      corrupts the single-line parse below.
+	#   2. -EncodedCommand (Base64 UTF-16LE) instead of -Command — the query is full
+	#      of | " $ ' chars that Godot's OS.execute arg-builder mangles, so the
+	#      process errored / got a broken script. Encoding makes it ONE clean ASCII
+	#      token with nothing to escape.
+	# CPU load: Win32_Processor.LoadPercentage is unreliable (often blank), so prefer
+	# the formatted perf class (_Total/PercentProcessorTime, locale-invariant), with
+	# LoadPercentage as fallback. Built-in name + RAM above already populated, so any
+	# failure here never blanks them; fields parse independently.
 	var cmd := (
-		"$c=Get-CimInstance Win32_Processor|Select -First 1;"
+		"$ProgressPreference='SilentlyContinue';"
+		+ "$c=Get-CimInstance Win32_Processor|Select -First 1;"
 		+ "$o=Get-CimInstance Win32_OperatingSystem;"
+		+ "$u=(Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor|?{$_.Name -eq '_Total'}).PercentProcessorTime;"
+		+ "if($null -eq $u -or $u -eq ''){$u=$c.LoadPercentage};"
 		+ "$t='N/A';"
 		+ "try{"
-		+   "$tz=Get-CimInstance -NS root/wmi MSAcpi_ThermalZoneTemperature -EA Stop;"
+		+   "$tz=Get-CimInstance -NS root/wmi MSAcpi_ThermalZoneTemperature -EA Stop|Select -First 1;"
 		+   "$t=[math]::Round($tz.CurrentTemperature/10-273.15,1)"
 		+ "}catch{};"
-		+ "\"$($c.LoadPercentage)|$($c.CurrentClockSpeed)|$($c.Name)"
-		+ "|$($o.FreePhysicalMemory)|$($o.TotalVisibleMemorySize)|$t\""
+		+ "\"$u|$($c.CurrentClockSpeed)|$($o.FreePhysicalMemory)|$($o.TotalVisibleMemorySize)|$t\""
 	)
+	var b64 := Marshalls.raw_to_base64(cmd.to_utf16_buffer())
 	var out: Array = []
-	if OS.execute("powershell.exe",
+	if OS.execute(_pwsh_path(),
 			["-NonInteractive", "-NoProfile", "-ExecutionPolicy", "Bypass",
-			 "-Command", cmd], out, false, false) != 0 or out.is_empty():
+			 "-EncodedCommand", b64], out, false, false) != 0 or out.is_empty():
 		return
 
 	var p := (out[0] as String).strip_edges().split("|")
-	if p.size() < 6:
-		return
+	if p.size() >= 1 and p[0].strip_edges() != "":
+		r["cpu_load"] = p[0].strip_edges().to_float()
+	if p.size() >= 2 and p[1].strip_edges() != "":
+		r["cpu_clk"]  = p[1].strip_edges().to_float()
+	if p.size() >= 4:
+		var tot_kb := p[3].strip_edges().to_int()
+		if tot_kb > 0:                        # WMI RAM is authoritative; overrides built-in
+			var free_kb := p[2].strip_edges().to_int()
+			r["ram_total"] = tot_kb * 1024
+			r["ram_used"]  = (tot_kb - free_kb) * 1024
+	if p.size() >= 5:
+		var tmp_s := p[4].strip_edges()
+		if tmp_s != "N/A" and tmp_s != "":
+			r["cpu_temp"] = tmp_s.to_float()
 
-	r["cpu_load"]  = p[0].strip_edges().to_float()
-	r["cpu_clk"]   = p[1].strip_edges().to_float()
-	var cname      := p[2].strip_edges()
-	if "@" in cname:
-		cname = cname.split("@")[0].strip_edges()
-	r["cpu_name"]  = cname
-	var free_kb    := p[3].strip_edges().to_int()
-	var tot_kb     := p[4].strip_edges().to_int()
-	r["ram_total"] = tot_kb  * 1024
-	r["ram_used"]  = (tot_kb - free_kb) * 1024
-	var tmp_s      := p[5].strip_edges()
-	r["cpu_temp"]  = tmp_s.to_float() if tmp_s != "N/A" and tmp_s != "" else -1.0
+
+# Absolute path to Windows PowerShell, falling back to a bare PATH lookup. Resolved
+# from %SystemRoot% so OS.execute finds it even if the process PATH is unusual.
+func _pwsh_path() -> String:
+	var root := OS.get_environment("SystemRoot")
+	if root != "":
+		var cand := root.replace("\\", "/") + "/System32/WindowsPowerShell/v1.0/powershell.exe"
+		if FileAccess.file_exists(cand):
+			return cand
+	return "powershell.exe"
 
 
 func _csv(raw: String) -> PackedStringArray:
@@ -260,7 +306,7 @@ func _draw() -> void:
 	var fps_avg := 1000.0 / maxf(ft_avg, 0.001)
 	var gn      : String = hw.get("gpu_name", "")
 	var cn      : String = hw.get("cpu_name", "")
-	if cn.length() > 24: cn = cn.substr(0, 24)
+	if cn.length() > 35: cn = cn.substr(0, 35)  # fits the 39-wide CPU header w/o chopping mid-name
 
 	var s := ""
 
