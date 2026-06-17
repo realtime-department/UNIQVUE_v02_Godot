@@ -33,8 +33,10 @@ const SCENES := [
 	"res://plexus.tscn",
 	"res://cubic.tscn",
 	"res://structure.tscn",
+	"res://smoothwave.tscn",
+	"res://quantum.tscn",
 ]
-const SCENE_LABELS := ["Tunnel", "Wave", "Stripes", "Lines", "Plexus", "Cubic", "Structure"]
+const SCENE_LABELS := ["Tunnel", "Wave", "Stripes", "Lines", "Plexus", "Cubic", "Structure", "SmoothWave", "Quantum"]
 const TRANSITION_TIME := 1.2   # Default; zur Laufzeit ueber transition_time anpassbar.
 const ZOOM_SPAN := 2.0   # Symmetrischer Zoom-Hub: alt 1->ZOOM_SPAN, neu ZOOM_SPAN->1.
 						 # Beide bleiben >= 1 -> stets volle Deckung (nie schwarze Raender).
@@ -154,9 +156,9 @@ func _ready() -> void:
 		vp.transparent_bg = false
 		vp.size = vp_size
 		vp.use_hdr_2d = true  # FP16-Target: Gradient bleibt bis zum Present-Pass
-		                      # ungequantelt -> kein 8-Bit-Banding vor dem Compositing.
+							  # ungequantelt -> kein 8-Bit-Banding vor dem Compositing.
 		vp.use_debanding = true  # Engine-Debander am 3D-Tonemap (nach TAA-Resolve,
-		                         # vor jeder 8-Bit-Quantisierung) -> flicker-frei.
+								 # vor jeder 8-Bit-Quantisierung) -> flicker-frei.
 		vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
 		add_child(vp)
 		_vps.append(vp)
