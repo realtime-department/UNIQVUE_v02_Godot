@@ -127,6 +127,7 @@ func _ready() -> void:
 	_master.size = vp_size
 	_master.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	_master.use_hdr_2d = true  # additive Ueberlappung > 1.0 -> echtes Bloom-Futter
+	_master.use_debanding = true  # flicker-freier Engine-Debander am Master-Tonemap
 	add_child(_master)
 
 	# Schwarzer Hintergrund als Sicherheitsfond (im Master).
@@ -154,6 +155,8 @@ func _ready() -> void:
 		vp.size = vp_size
 		vp.use_hdr_2d = true  # FP16-Target: Gradient bleibt bis zum Present-Pass
 		                      # ungequantelt -> kein 8-Bit-Banding vor dem Compositing.
+		vp.use_debanding = true  # Engine-Debander am 3D-Tonemap (nach TAA-Resolve,
+		                         # vor jeder 8-Bit-Quantisierung) -> flicker-frei.
 		vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
 		add_child(vp)
 		_vps.append(vp)
@@ -201,6 +204,12 @@ func _ready() -> void:
 	_blackout.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_blackout.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_blackout)
+
+	# Auch das Haupt-Viewport (zeigt _final) debandet bekommen — falls die Engine
+	# den 2D-Present mit einbezieht. Schadet nicht, wenn es ein No-Op ist.
+	var root_vp := get_viewport()
+	if root_vp != null:
+		root_vp.use_debanding = true
 
 	get_window().size_changed.connect(_on_window_resized)
 	RenderingServer.global_shader_parameter_set("sky_viewport_h", float(vp_size.y))
