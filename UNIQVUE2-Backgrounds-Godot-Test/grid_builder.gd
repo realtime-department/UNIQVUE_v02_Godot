@@ -10,15 +10,38 @@ const _WIRE_SHADER := preload("res://wave_wire.gdshader")
 
 var grid_w: int = 220
 var grid_h: int = 220
-var span_x: float = 320.0
+const SPAN_X_BASE: float = 320.0
+var span_x: float = SPAN_X_BASE
 var span_z: float = 420.0
+
+# Breiten-Faktor (aspect/16:9): streckt die X-Spannweite des Gitters (breitere
+# Spaltenabstaende bei gleicher Punktzahl -> stabiler Polycount), damit das Gitter
+# bei breiten/Wand-Aufloesungen die Breite fuellt. Z/Y bleiben unveraendert.
+var _wfac: float = 1.0
 
 var _verts: PackedVector3Array   # geteilt zwischen Punkt- und Linien-Gitter
 
 
 func _ready() -> void:
+	var stage := get_node_or_null("/root/BackgroundStage")
+	_wfac = stage.width_factor() if stage else 1.0
+	span_x = SPAN_X_BASE * _wfac
+	if stage:
+		stage.aspect_changed.connect(_on_aspect_changed)
 	_build_points()
 	_build_wire.call_deferred()
+
+
+# Aspekt-Aenderung: X-Spannweite neu setzen und Gitter neu aufbauen. Die Wellen-
+# bewegung lebt komplett im Vertex-Shader, daher genuegt ein einmaliger Rebuild der
+# Basis-Geometrie (kein Per-Frame-Reset). Z/Y bleiben unveraendert.
+func _on_aspect_changed(aspect: float) -> void:
+	var nf := aspect / (16.0 / 9.0)
+	if absf(nf - _wfac) < 0.0001:
+		return
+	_wfac = nf
+	span_x = SPAN_X_BASE * _wfac
+	_build()
 
 
 ## Von particle_wave_root.density-Setter aufgerufen. Rebuild des Punkt- und

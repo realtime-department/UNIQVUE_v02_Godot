@@ -44,6 +44,11 @@ const PCOUNT   := 800
 
 var _travel: float = 0.0
 
+# Breiten-Faktor (aspect/16:9): streckt die horizontale (X-)Ausdehnung von
+# Block-Spalten, Sky-Panels und Partikeln, damit der Korridor bei breiten/Wand-
+# Aufloesungen die Breite fuellt statt mittig zu clustern. Y/Z bleiben unveraendert.
+var _wfac: float = 1.0
+
 # Geometry bounds (computed from JSON)
 var _tile_d: float = 1243.0
 var _seg_len: float = 1044.0
@@ -83,6 +88,10 @@ var _pc: PackedColorArray     # point colours (persistent, filled each frame)
 
 
 func _ready() -> void:
+	var stage := get_node_or_null("/root/BackgroundStage")
+	_wfac = stage.width_factor() if stage else 1.0
+	if stage:
+		stage.aspect_changed.connect(_on_aspect_changed)
 	_load_geometry()
 	_build_block_transforms()
 	_build_sky_panels()
@@ -179,7 +188,8 @@ func _build_block_transforms() -> void:
 	# 18 base transforms per block (floor + ceiling for each of 9 columns)
 	_block_base.resize(COLS * 2)
 	for c in range(COLS):
-		var ox := (float(c) - float(COLS - 1) * 0.5) * _step_x - _cx
+		# X-Spaltenversatz mit _wfac strecken -> Korridor wird breiter.
+		var ox := ((float(c) - float(COLS - 1) * 0.5) * _step_x - _cx) * _wfac
 
 		# Floor mesh: small Y jitter, small Y rotation
 		var ry_f := (_rand(float(c) * 13.1) * 2.0 - 1.0) * 0.04
@@ -188,7 +198,7 @@ func _build_block_transforms() -> void:
 		_block_base[c] = Transform3D(bf, Vector3(ox, dy_f, -_cz))
 
 		# Ceiling mesh: PI rotation around Z (flipped), small Y rotation, small X offset
-		var ox2  := ox + (_rand(float(c)) * 2.0 - 1.0) * 30.0
+		var ox2  := ox + (_rand(float(c)) * 2.0 - 1.0) * 30.0 * _wfac
 		var ry_c := (_rand(float(c) * 3.3) * 2.0 - 1.0) * 0.06
 		# Rotate PI around Z → flip upside-down, then apply small Y rotation
 		var bc   := Basis(Vector3.FORWARD, PI) * Basis(Vector3.UP, ry_c)
@@ -219,8 +229,9 @@ func _build_sky_panels() -> void:
 			var bright := 0.28 + pow(_rand(float(idx) * 2.7), 1.5) * 0.5
 			var w := 150.0 + _rand(float(idx) * 1.9) * 190.0
 			var d := 150.0 + _rand(float(idx) * 2.3) * 200.0
-			var px := (float(col) - float(SKY_COLS - 1) * 0.5) * 340.0 \
-			          + (_rand(float(idx)) * 2.0 - 1.0) * 110.0
+			# X-Spaltenabstand der Sky-Panels mit _wfac strecken (Panel-Groesse bleibt).
+			var px := ((float(col) - float(SKY_COLS - 1) * 0.5) * 340.0 \
+			          + (_rand(float(idx)) * 2.0 - 1.0) * 110.0) * _wfac
 			var py := PANEL_Y - _rand(float(idx) * 1.7) * 40.0
 			# Scale in XZ (PlaneMesh lies in XZ)
 			var bas := Basis.IDENTITY.scaled(Vector3(w, 1.0, d))
@@ -235,7 +246,7 @@ func _init_particles() -> void:
 	_pz   = PackedFloat32Array(); _pz.resize(PCOUNT)
 	_pspd = PackedFloat32Array(); _pspd.resize(PCOUNT)
 	for i in range(PCOUNT):
-		_px[i]   = (_rand(float(i) * 1.1) * 2.0 - 1.0) * 1800.0
+		_px[i]   = (_rand(float(i) * 1.1) * 2.0 - 1.0) * 1800.0 * _wfac
 		_py[i]   = 10.0 + _rand(float(i) * 2.2) * 420.0
 		_pz[i]   = 400.0 - _rand(float(i) * 3.3) * 6500.0
 		_pspd[i] = 60.0 + _rand(float(i) * 4.4) * 120.0
@@ -243,6 +254,21 @@ func _init_particles() -> void:
 	_pc = PackedColorArray();   _pc.resize(PCOUNT)
 	_p_mesh       = ArrayMesh.new()
 	_part_node.mesh = _p_mesh
+
+
+# Aspekt-Aenderung: X-Ausdehnung proportional auf den neuen Breiten-Faktor skalieren.
+# Bestehende Partikel-X mit nf/_wfac umrechnen (kein Sprung), gecachte Block- und
+# Sky-Basistransforms neu aus _wfac aufbauen; Y/Z bleiben unveraendert.
+func _on_aspect_changed(aspect: float) -> void:
+	var nf := aspect / (16.0 / 9.0)
+	if absf(nf - _wfac) < 0.0001:
+		return
+	var k := nf / _wfac
+	for i in range(PCOUNT):
+		_px[i] *= k
+	_wfac = nf
+	_build_block_transforms()
+	_build_sky_panels()
 
 
 func _process(delta: float) -> void:
@@ -296,7 +322,7 @@ func _update_particles(dt: float) -> void:
 	for i in range(n):
 		_pz[i] += _pspd[i] * dt
 		if _pz[i] > CAM_Z + 200.0:
-			_px[i] = (_rand(float(i) * 1.1 + _travel * 0.013) * 2.0 - 1.0) * 1800.0
+			_px[i] = (_rand(float(i) * 1.1 + _travel * 0.013) * 2.0 - 1.0) * 1800.0 * _wfac
 			_py[i] = 10.0 + _rand(float(i) * 2.2 + _travel * 0.011) * 420.0
 			_pz[i] = -6500.0
 		# Vertex colour is intentionally black: structure_part shader colours from

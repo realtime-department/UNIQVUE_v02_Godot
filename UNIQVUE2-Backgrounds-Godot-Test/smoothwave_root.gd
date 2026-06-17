@@ -56,27 +56,55 @@ const MAX_GROUPS := 4
 @onready var _cloth: MultiMeshInstance3D = $Cloth
 var _mat: ShaderMaterial
 var _mm: MultiMesh
+var _plane: PlaneMesh
+
+# Breiten-Faktor (aspect/16:9): streckt die X-Breite der Tuch-Plane (RIB_W), damit
+# die Tuecher bei breiten/Wand-Aufloesungen die Breite fuellen. Die Cloth ist um Z
+# gedreht (orient_deg ~90 -> Plane-X ~ Welt-X). Z/Y bleiben unveraendert.
+var _wfac: float = 1.0
 
 
 func _ready() -> void:
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(RIB_W, RIB_D)
-	plane.subdivide_width = SEG_X
-	plane.subdivide_depth = SEG_Z
+	var stage := get_node_or_null("/root/BackgroundStage")
+	_wfac = stage.width_factor() if stage else 1.0
+	if stage:
+		stage.aspect_changed.connect(_on_aspect_changed)
+
+	_plane = PlaneMesh.new()
+	_plane.size = Vector2(RIB_W * _wfac, RIB_D)
+	_plane.subdivide_width = SEG_X
+	_plane.subdivide_depth = SEG_Z
 
 	_mm = MultiMesh.new()
 	_mm.transform_format = MultiMesh.TRANSFORM_3D
 	_mm.use_custom_data = true
-	_mm.mesh = plane
+	_mm.mesh = _plane
 	_mm.instance_count = MAX_GROUPS * MAX_LAYERS
 	_cloth.multimesh = _mm
-	# Grosszuegige AABB: verhindert Frustum-Culling durch Vertex-Displacement +
-	# Gruppen-Versatz (Geometrie verlaesst die ungebeugte Plane-Box deutlich).
-	_cloth.custom_aabb = AABB(Vector3(-140.0, -120.0, -140.0), Vector3(280.0, 240.0, 280.0))
+	_apply_aabb()
 
 	_mat = _cloth.material_override as ShaderMaterial
 	_update_camera()
 	_update_cloth()
+
+
+# Grosszuegige AABB (X-Halbmass mit _wfac geweitet): verhindert Frustum-Culling durch
+# Vertex-Displacement + Gruppen-Versatz und die gestreckte Plane-Breite.
+func _apply_aabb() -> void:
+	var hx := 140.0 * maxf(1.0, _wfac)
+	_cloth.custom_aabb = AABB(Vector3(-hx, -120.0, -140.0), Vector3(hx * 2.0, 240.0, 280.0))
+
+
+# Aspekt-Aenderung: X-Breite der Plane neu setzen (MultiMesh teilt EINE Plane fuer
+# alle Instanzen -> ein Mesh-Update genuegt). Z/Y bleiben unveraendert.
+func _on_aspect_changed(aspect: float) -> void:
+	var nf := aspect / (16.0 / 9.0)
+	if absf(nf - _wfac) < 0.0001:
+		return
+	_wfac = nf
+	if _plane != null:
+		_plane.size = Vector2(RIB_W * _wfac, RIB_D)
+	_apply_aabb()
 
 
 func _process(_delta: float) -> void:

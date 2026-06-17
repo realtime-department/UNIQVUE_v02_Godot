@@ -37,6 +37,12 @@ var _pang: PackedFloat32Array
 var _prad: PackedFloat32Array
 var _pseed: PackedFloat32Array
 
+# Breiten-Faktor (aspect/16:9): streckt die horizontale (X-)Ausdehnung der radialen
+# Streak-Verteilung, damit bei breiten/Wand-Aufloesungen die Roehre die Breite fuellt
+# statt mittig zu clustern. Nur X wird skaliert (Y/Z bleiben), die Verteilung ist
+# pro Frame aus _pang/_prad berechnet -> kein Re-Seed noetig.
+var _wfac: float = 1.0
+
 # Batched geometry buffers. Statt per-Vertex surface_*-Calls (bis zu ~12000
 # Scripting-Boundary-Calls/Frame) fuellen wir persistente Packed-Arrays und
 # laden sie einmal pro Mesh via ArrayMesh.add_surface_from_arrays hoch — exakt
@@ -57,6 +63,10 @@ func _ready() -> void:
 	_pang = PackedFloat32Array(); _pang.resize(NMAX)
 	_prad = PackedFloat32Array(); _prad.resize(NMAX)
 	_pseed = PackedFloat32Array(); _pseed.resize(NMAX)
+	var stage := get_node_or_null("/root/BackgroundStage")
+	_wfac = stage.width_factor() if stage else 1.0
+	if stage:
+		stage.aspect_changed.connect(_on_aspect_changed)
 	for i in range(NMAX):
 		_spawn(i, true)
 	# Persistente Buffer einmal auf NMAX dimensionieren (Streaks: 2 Vertices/
@@ -69,7 +79,10 @@ func _ready() -> void:
 	_head_mesh = ArrayMesh.new()
 	_streaks.mesh = _streak_mesh
 	_heads.mesh = _head_mesh
-	var big_aabb := AABB(Vector3(-200.0, -200.0, -410.0), Vector3(400.0, 400.0, 820.0))
+	# X-Halbmass mit _wfac geweitet, damit die horizontal gestreckte Verteilung auf
+	# breiten Aufloesungen nicht geculled wird.
+	var hx := 200.0 * maxf(1.0, _wfac)
+	var big_aabb := AABB(Vector3(-hx, -200.0, -410.0), Vector3(hx * 2.0, 400.0, 820.0))
 	_streaks.custom_aabb = big_aabb
 	_heads.custom_aabb = big_aabb
 
@@ -81,6 +94,13 @@ func _spawn(i: int, spread: bool) -> void:
 	_pang[i] = randf() * TAU
 	_prad[i] = (0.15 + randf() * 0.85) * radius
 	_pseed[i] = randf()
+
+# Aspekt-Aenderung: nur den Breiten-Faktor merken. Die X-Positionen werden im
+# naechsten _simulate() neu aus _pang/_prad * _wfac berechnet -> sanfter Uebergang,
+# kein Re-Seed.
+func _on_aspect_changed(aspect: float) -> void:
+	_wfac = aspect / (16.0 / 9.0)
+
 
 func _process(delta: float) -> void:
 	_simulate(minf(delta, 0.05))
@@ -117,7 +137,9 @@ func _simulate(dt: float) -> void:
 			_spawn(i, false)
 			continue
 		var z: float = _pz[i]
-		var x: float = cos(_pang[i]) * _prad[i]
+		# Nur X mit dem Breiten-Faktor strecken -> radiale Verteilung wird auf breiten
+		# Aufloesungen horizontal aufgezogen, Y bleibt unveraendert.
+		var x: float = cos(_pang[i]) * _prad[i] * _wfac
 		var y: float = sin(_pang[i]) * _prad[i]
 		var near_t: float = 1.0 - z / Z_FAR
 		var len: float = minf(z - Z_NEAR,

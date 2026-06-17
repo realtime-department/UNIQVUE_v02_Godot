@@ -24,6 +24,15 @@ extends CanvasLayer
 ## active_changed(root) feuert nach jedem Wechsel -> die UI befuellt sich daraus neu.
 
 signal active_changed(root: Node)
+## Feuert, wenn sich das Seitenverhaeltnis der Render-Flaeche aendert (Fenster-Resize,
+## SPAN/PREVIEW-Umschaltung, Render-Size-Override). 3D-Module skalieren daraufhin ihre
+## horizontale Geometrie-Ausdehnung, damit der Inhalt die Breite fuellt statt in der
+## Mitte zu clustern (breite/Wand-Aufloesungen). Basis-Aspekt ist 16:9 (Fenster-Default).
+signal aspect_changed(aspect: float)
+
+## Aspekt, fuer den die Module getuned sind (1920x1080). Bei diesem Wert ist der
+## Breiten-Multiplikator exakt 1.0.
+const BASE_ASPECT := 16.0 / 9.0
 
 const SCENES := [
 	"res://tunnel_wave.tscn",
@@ -104,6 +113,7 @@ var _active := 0          # aktiver Slot (0/1)
 var _scene_idx := 0       # Index in SCENES, der gerade aktiv ist
 var _busy := false
 var _forced_size := Vector2i.ZERO   # != 0 -> SubViewports rendern in dieser (Wand-)Groesse
+var _last_aspect := 0.0             # zuletzt gemeldetes Render-Seitenverhaeltnis (Spam-Schutz)
 
 # --- S1: Master-Composite (Variante A) ---
 # Beide Layer-Rects werden in _master additiv in HDR-2D komponiert; dessen
@@ -355,6 +365,32 @@ func _apply_vp_size() -> void:
 	if _master != null:
 		_master.size = s
 	RenderingServer.global_shader_parameter_set("sky_viewport_h", float(s.y))
+	_notify_aspect(s)
+
+
+## Aktuelles Seitenverhaeltnis der Render-Flaeche (Breite/Hoehe). Module lesen das
+## und skalieren ihre X-Ausdehnung mit aspect / BASE_ASPECT.
+func canvas_aspect() -> float:
+	var s: Vector2i = _forced_size if _forced_size != Vector2i.ZERO else get_window().size
+	if s.y <= 0:
+		return BASE_ASPECT
+	return float(s.x) / float(s.y)
+
+
+## Breiten-Multiplikator fuer die aktuelle Render-Flaeche: 1.0 bei 16:9, groesser bei
+## breiteren (Wand-)Aufloesungen. Module multiplizieren ihre horizontale Ausdehnung damit.
+func width_factor() -> float:
+	return canvas_aspect() / BASE_ASPECT
+
+
+func _notify_aspect(s: Vector2i) -> void:
+	if s.y <= 0:
+		return
+	var a := float(s.x) / float(s.y)
+	if absf(a - _last_aspect) < 0.001:
+		return
+	_last_aspect = a
+	aspect_changed.emit(a)
 
 
 # Naechste Szene in SCENES-Reihenfolge.

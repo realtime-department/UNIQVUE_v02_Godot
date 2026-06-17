@@ -74,6 +74,12 @@ var _box_z: float = 14.0
 var _depth_cache: float = -1.0
 var _hubs_cache: float = -1.0
 
+# Breiten-Faktor (aspect/16:9): skaliert die horizontale Box-Ausdehnung, damit der
+# Inhalt bei breiten/Wand-Aufloesungen die volle Breite fuellt statt in der Mitte zu
+# clustern. _box_x ist die Laufzeit-X-Ausdehnung (= BOX_X * _wfac); BOX_X bleibt Basis.
+var _wfac: float = 1.0
+var _box_x: float = BOX_X
+
 # --- Profiling: prints the CPU cost of each sim phase every 60 frames so we can
 # tell whether we are CPU- or GPU-bound. Set to false to silence.
 @export var profile: bool = false
@@ -107,6 +113,11 @@ func _ready() -> void:
 	_box_z = 8.0 + depth * 34.0
 	_depth_cache = depth
 	_hubs_cache = hubs
+	var stage := get_node_or_null("/root/BackgroundStage")
+	_wfac = stage.width_factor() if stage else 1.0
+	_box_x = BOX_X * _wfac
+	if stage:
+		stage.aspect_changed.connect(_on_aspect_changed)
 	_seed()
 	_point_mesh = ArrayMesh.new()
 	_line_mesh = ArrayMesh.new()
@@ -114,8 +125,14 @@ func _ready() -> void:
 	_streaks.mesh = _line_mesh
 	_point_mat = _points.material_override as ShaderMaterial
 	_line_mat = _streaks.material_override as ShaderMaterial
-	# Grosszuegige AABB (Box max 22 x 13 x 42), damit nichts geculled wird.
-	var big_aabb := AABB(Vector3(-20.0, -20.0, -25.0), Vector3(40.0, 40.0, 50.0))
+	_apply_aabb()
+
+
+# Grosszuegige AABB (Box max 22 x 13 x 42, X-Halbmass mit _wfac geweitet), damit
+# auf breiten Aufloesungen nichts geculled wird.
+func _apply_aabb() -> void:
+	var hx := 20.0 * maxf(1.0, _wfac)   # Cull-Box nie unter Basis schrumpfen (wie tunnel/smoothwave)
+	var big_aabb := AABB(Vector3(-hx, -20.0, -25.0), Vector3(hx * 2.0, 40.0, 50.0))
 	_points.custom_aabb = big_aabb
 	_streaks.custom_aabb = big_aabb
 
@@ -128,7 +145,7 @@ func _rng_hash(i: int) -> float:
 
 func _seed() -> void:
 	for i in range(NMAX):
-		_pos[i * 3] = (randf() - 0.5) * BOX_X
+		_pos[i * 3] = (randf() - 0.5) * _box_x
 		_pos[i * 3 + 1] = (randf() - 0.5) * BOX_Y
 		_pos[i * 3 + 2] = (randf() - 0.5) * _box_z
 		_vel[i * 3] = randf() - 0.5
@@ -154,6 +171,21 @@ func _apply_depth() -> void:
 		var k := _box_z / old_z
 		for i in range(NMAX):
 			_pos[i * 3 + 2] *= k
+
+
+# Aspekt-Aenderung: X-Box-Ausdehnung proportional auf den neuen Breiten-Faktor
+# skalieren (Muster wie _apply_depth() fuer Z). Bestehende X-Positionen werden mit
+# nf/_wfac umgerechnet, damit nichts springt; Y/Z bleiben unveraendert.
+func _on_aspect_changed(aspect: float) -> void:
+	var nf := aspect / (16.0 / 9.0)
+	if absf(nf - _wfac) < 0.0001:
+		return
+	var k := nf / _wfac
+	for i in range(NMAX):
+		_pos[i * 3] *= k
+	_wfac = nf
+	_box_x = BOX_X * _wfac
+	_apply_aabb()
 
 
 func _process(delta: float) -> void:
@@ -214,14 +246,14 @@ func _flow(x: float, y: float, z: float, ph: float) -> Vector3:
 ## _next_idx[i] chaining to the next point in the same cell.
 func _build_grid(cs: float, n: int) -> void:
 	_cell_size = maxf(0.5, cs)
-	_gx = int(ceil(BOX_X / _cell_size)) + 2
+	_gx = int(ceil(_box_x / _cell_size)) + 2
 	_gy = int(ceil(BOX_Y / _cell_size)) + 2
 	_gz = int(ceil(_box_z / _cell_size)) + 2
 	var total := _gx * _gy * _gz
 	if _grid_buf.size() != total:
 		_grid_buf.resize(total)
 	_grid_buf.fill(-1)
-	var ox := BOX_X * 0.5
+	var ox := _box_x * 0.5
 	var oy := BOX_Y * 0.5
 	var oz := _box_z * 0.5
 	for i in range(n):
@@ -254,7 +286,7 @@ func _simulate(dt: float) -> void:
 	var max_d2 := max_d * max_d
 	var inner := max_d * (1.0 - link_soft)
 	var inner_rng := maxf(0.0001, max_d - inner)
-	var ox := BOX_X * 0.5
+	var ox := _box_x * 0.5
 	var oy := BOX_Y * 0.5
 	var oz := _box_z * 0.5
 	var gx := _gx
@@ -324,7 +356,7 @@ func _simulate(dt: float) -> void:
 	var sp := speed
 	var dr := drift
 	var damp := pow(0.985, dt * 60.0)   # frameraten-unabhaengig (HTML: 0.985 @60fps)
-	var mx := BOX_X * 0.5 * 0.96
+	var mx := _box_x * 0.5 * 0.96
 	var my := BOX_Y * 0.5 * 0.96
 	var mz := _box_z * 0.5 * 0.96
 	for i in range(n):

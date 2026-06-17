@@ -76,18 +76,36 @@ var _su: PackedFloat32Array
 var _sa: PackedFloat32Array
 var _t: float = 0.0
 
+# Breiten-Faktor (aspect/16:9): streckt die Roehre entlang ihrer Laengsachse (lokales
+# X von _tube, ~horizontal da orient_deg ~90), damit sie bei breiten/Wand-Aufloesungen
+# die Breite fuellt. Wird als _tube.scale.x angewandt; Y/Z bleiben unveraendert.
+var _wfac: float = 1.0
+
 var _poly_mat: ShaderMaterial
 var _edge_mat: ShaderMaterial
 var _point_mat: ShaderMaterial
 
 
 func _ready() -> void:
+	var stage := get_node_or_null("/root/BackgroundStage")
+	_wfac = stage.width_factor() if stage else 1.0
+	if stage:
+		stage.aspect_changed.connect(_on_aspect_changed)
 	_build_geometry()
+	_tube.scale.x = _wfac
 	_poly_mat = _poly.material_override as ShaderMaterial
 	_edge_mat = _edges.material_override as ShaderMaterial
 	_point_mat = _points.material_override as ShaderMaterial
 	_update_camera()
 	_update_all()
+
+
+# Aspekt-Aenderung: nur den Breiten-Faktor als X-Skalierung der Roehre setzen.
+# _tube.rotation.z wird je Frame separat gesetzt -> Skalierung bleibt erhalten.
+# Y/Z bleiben unveraendert.
+func _on_aspect_changed(aspect: float) -> void:
+	_wfac = aspect / (16.0 / 9.0)
+	_tube.scale.x = _wfac
 
 
 func _process(delta: float) -> void:
