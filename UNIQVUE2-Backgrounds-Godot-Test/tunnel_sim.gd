@@ -37,8 +37,16 @@ var _pang: PackedFloat32Array
 var _prad: PackedFloat32Array
 var _pseed: PackedFloat32Array
 
-var _streak_mesh: ImmediateMesh
-var _head_mesh: ImmediateMesh
+# Batched geometry buffers. Statt per-Vertex surface_*-Calls (bis zu ~12000
+# Scripting-Boundary-Calls/Frame) fuellen wir persistente Packed-Arrays und
+# laden sie einmal pro Mesh via ArrayMesh.add_surface_from_arrays hoch — exakt
+# das Muster aus plexus_sim.gd _upload_meshes().
+var _streak_mesh: ArrayMesh
+var _head_mesh: ArrayMesh
+var _sp: PackedVector3Array       # streak vertex positions (2 per particle)
+var _sc: PackedColorArray         # streak vertex colours
+var _hp: PackedVector3Array       # head positions (1 per particle)
+var _hc: PackedColorArray         # head colours
 
 @onready var _camera: Camera3D = $Camera3D
 @onready var _streaks: MeshInstance3D = $Streaks
@@ -51,8 +59,14 @@ func _ready() -> void:
 	_pseed = PackedFloat32Array(); _pseed.resize(NMAX)
 	for i in range(NMAX):
 		_spawn(i, true)
-	_streak_mesh = ImmediateMesh.new()
-	_head_mesh = ImmediateMesh.new()
+	# Persistente Buffer einmal auf NMAX dimensionieren (Streaks: 2 Vertices/
+	# Partikel). Upload sliced spaeter auf die tatsaechlich befuellte Laenge.
+	_sp = PackedVector3Array(); _sp.resize(NMAX * 2)
+	_sc = PackedColorArray();   _sc.resize(NMAX * 2)
+	_hp = PackedVector3Array(); _hp.resize(NMAX)
+	_hc = PackedColorArray();   _hc.resize(NMAX)
+	_streak_mesh = ArrayMesh.new()
+	_head_mesh = ArrayMesh.new()
 	_streaks.mesh = _streak_mesh
 	_heads.mesh = _head_mesh
 	var big_aabb := AABB(Vector3(-200.0, -200.0, -410.0), Vector3(400.0, 400.0, 820.0))
@@ -86,15 +100,15 @@ func _update_camera() -> void:
 	_camera.fov = cam_fov
 
 func _simulate(dt: float) -> void:
-	_streak_mesh.clear_surfaces()
-	_head_mesh.clear_surfaces()
-	_streak_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
-	_head_mesh.surface_begin(Mesh.PRIMITIVE_POINTS)
 	# Farben zentral aus STYLE (fern/Tal -> nah/Glanz).
 	var color_far: Color = Style.get_color("fog_color")
 	var color_mid: Color = Style.get_color("elem_a")
 	var color_near: Color = Style.get_color("elem_b")
 	var n := mini(NMAX, particle_count)
+	# Lauf-Schreibindex: respawnte Partikel (continue) emittieren keine
+	# Vertices, daher ist die befuellte Laenge variabel (<= n). si zaehlt die
+	# tatsaechlich geschriebenen Streak/Head-Partikel — wie plexus's li.
+	var si := 0
 	for i in range(n):
 		_pz[i] -= speed * dt
 		if swirl != 0.0:
@@ -117,12 +131,33 @@ func _simulate(dt: float) -> void:
 		var a_front: float = minf(1.0, 0.3 + near_t) * opacity
 		var fc := Color(col.r * br, col.g * br, col.b * br, a_front)
 		var bc := Color(col.r * br * 0.2, col.g * br * 0.2, col.b * br * 0.2, 0.0)
-		_streak_mesh.surface_set_color(fc)
-		_streak_mesh.surface_add_vertex(Vector3(x, y, -z))
-		_streak_mesh.surface_set_color(bc)
-		_streak_mesh.surface_add_vertex(Vector3(x, y, -(z + len)))
+		# Streak: front-Vertex (fc) + back-Vertex (bc) in die Buffer schreiben.
+		var b := si * 2
+		_sp[b] = Vector3(x, y, -z)
+		_sc[b] = fc
+		_sp[b + 1] = Vector3(x, y, -(z + len))
+		_sc[b + 1] = bc
 		var ha: float = minf(1.0, near_t * 1.2) * head_glow * opacity
-		_head_mesh.surface_set_color(Color(fc.r, fc.g, fc.b, ha))
-		_head_mesh.surface_add_vertex(Vector3(x, y, -z))
-	_streak_mesh.surface_end()
-	_head_mesh.surface_end()
+		_hp[si] = Vector3(x, y, -z)
+		_hc[si] = Color(fc.r, fc.g, fc.b, ha)
+		si += 1
+	_upload_meshes(si)
+
+func _upload_meshes(si: int) -> void:
+	# Einmaliger Upload pro Mesh statt per-Vertex-Calls (mirrors plexus_sim.gd
+	# _upload_meshes). Nur den befuellten Slice hochladen; Zero-Vertex-Fall
+	# nach clear_surfaces ueberspringen.
+	_streak_mesh.clear_surfaces()
+	if si > 0:
+		var arrs: Array = []
+		arrs.resize(Mesh.ARRAY_MAX)
+		arrs[Mesh.ARRAY_VERTEX] = _sp.slice(0, si * 2)
+		arrs[Mesh.ARRAY_COLOR]  = _sc.slice(0, si * 2)
+		_streak_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrs)
+	_head_mesh.clear_surfaces()
+	if si > 0:
+		var harrs: Array = []
+		harrs.resize(Mesh.ARRAY_MAX)
+		harrs[Mesh.ARRAY_VERTEX] = _hp.slice(0, si)
+		harrs[Mesh.ARRAY_COLOR]  = _hc.slice(0, si)
+		_head_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, harrs)

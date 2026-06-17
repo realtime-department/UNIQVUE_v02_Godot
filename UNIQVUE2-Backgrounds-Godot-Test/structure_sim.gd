@@ -71,7 +71,9 @@ var _px: PackedFloat32Array
 var _py: PackedFloat32Array
 var _pz: PackedFloat32Array
 var _pspd: PackedFloat32Array
-var _p_mesh: ImmediateMesh
+var _p_mesh: ArrayMesh
+var _pp: PackedVector3Array   # point positions (persistent, filled each frame)
+var _pc: PackedColorArray     # point colours (persistent, filled each frame)
 
 @onready var _camera: Camera3D             = $Camera3D
 @onready var _struct:  MultiMeshInstance3D = $StructMesh
@@ -237,7 +239,9 @@ func _init_particles() -> void:
 		_py[i]   = 10.0 + _rand(float(i) * 2.2) * 420.0
 		_pz[i]   = 400.0 - _rand(float(i) * 3.3) * 6500.0
 		_pspd[i] = 60.0 + _rand(float(i) * 4.4) * 120.0
-	_p_mesh       = ImmediateMesh.new()
+	_pp = PackedVector3Array(); _pp.resize(PCOUNT)
+	_pc = PackedColorArray();   _pc.resize(PCOUNT)
+	_p_mesh       = ArrayMesh.new()
 	_part_node.mesh = _p_mesh
 
 
@@ -283,20 +287,28 @@ func _update_sky_panels() -> void:
 
 
 func _update_particles(dt: float) -> void:
-	_p_mesh.clear_surfaces()
 	var n := mini(PCOUNT, int(float(PCOUNT) * particles))
 	if n <= 0:
+		_p_mesh.clear_surfaces()
 		return
-	_p_mesh.surface_begin(Mesh.PRIMITIVE_POINTS)
+	# Fill persistent buffers, then upload once via add_surface_from_arrays —
+	# avoids PCOUNT per-vertex ImmediateMesh calls every frame (see plexus_sim._upload_meshes).
 	for i in range(n):
 		_pz[i] += _pspd[i] * dt
 		if _pz[i] > CAM_Z + 200.0:
 			_px[i] = (_rand(float(i) * 1.1 + _travel * 0.013) * 2.0 - 1.0) * 1800.0
 			_py[i] = 10.0 + _rand(float(i) * 2.2 + _travel * 0.011) * 420.0
 			_pz[i] = -6500.0
-		_p_mesh.surface_set_color(Color(0.0, 0.0, 0.0, 1.0))
-		_p_mesh.surface_add_vertex(Vector3(_px[i], _py[i], _pz[i]))
-	_p_mesh.surface_end()
+		# Vertex colour is intentionally black: structure_part shader colours from
+		# elem_b, this is unused — kept as-is to preserve behaviour.
+		_pp[i] = Vector3(_px[i], _py[i], _pz[i])
+		_pc[i] = Color(0.0, 0.0, 0.0, 1.0)
+	_p_mesh.clear_surfaces()
+	var arrs: Array = []
+	arrs.resize(Mesh.ARRAY_MAX)
+	arrs[Mesh.ARRAY_VERTEX] = _pp.slice(0, n)
+	arrs[Mesh.ARRAY_COLOR]  = _pc.slice(0, n)
+	_p_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, arrs)
 
 
 func _update_camera() -> void:
