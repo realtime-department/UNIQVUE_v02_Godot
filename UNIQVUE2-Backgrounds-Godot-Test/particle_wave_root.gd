@@ -8,9 +8,10 @@ extends Node3D
 	set(v):
 		density = v
 		if is_inside_tree():
-			var gb := get_node_or_null("Grid")
-			if gb != null:
-				gb.call("set_density", v)
+			for grid_name in ["Grid", "GridTop"]:
+				var gb := get_node_or_null(grid_name)
+				if gb != null:
+					gb.call("set_density", v)
 
 @export_group("Camera")
 @export_range(0.5, 40.0, 0.5) var cam_height: float = 3.5
@@ -40,18 +41,21 @@ func _update_camera() -> void:
 	_camera.look_at(Vector3(cam_yaw * 0.3, cam_pitch, 60.0), Vector3.UP)
 
 
-## Geteilte Wellen-Parameter vom Grid-Material auf das Wire-Material uebertragen,
-## damit beide Netze dieselbe Wellenform zeigen. Wire-Parameter beginnen mit '_'
-## und werden von UI/ParamStore nicht erfasst — nur wire_opacity ist tunable.
+## Geteilte Wellen-Parameter vom Grid-Material auf beide Wire-Materialien uebertragen.
 func _sync_wire() -> void:
 	var grid := get_node_or_null("Grid") as MeshInstance3D
-	var wire := get_node_or_null("Wire") as MeshInstance3D
-	if grid == null or wire == null:
+	if grid == null:
 		return
 	var gm := grid.material_override as ShaderMaterial
-	var wm := wire.material_override as ShaderMaterial
-	if gm == null or wm == null:
+	if gm == null:
 		return
-	for p in ["amp", "freq", "wavelength", "speed", "flow", "warp",
-			"dir", "y_off", "mirror", "z_near", "z_far"]:
-		wm.set_shader_parameter(p, gm.get_shader_parameter(p))
+	for wire_name in ["GridWire", "GridTopWire"]:
+		var wire := get_node_or_null(wire_name) as MeshInstance3D
+		if wire == null:
+			continue
+		var wm := wire.material_override as ShaderMaterial
+		if wm == null:
+			continue
+		for p in ["amp", "freq", "wavelength", "speed", "flow", "warp",
+				"dir", "y_off", "mirror", "z_near", "z_far"]:
+			wm.set_shader_parameter(p, gm.get_shader_parameter(p))
