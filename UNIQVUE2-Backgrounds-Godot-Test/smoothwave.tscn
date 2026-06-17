@@ -1,0 +1,37 @@
+[gd_scene load_steps=7 format=3 uid="uid://csmoothwave0001"]
+
+[ext_resource type="Shader" path="res://smoothwave.gdshader" id="1_cloth"]
+[ext_resource type="Shader" path="res://gradient_sky.gdshader" id="2_sky"]
+[ext_resource type="Script" path="res://smoothwave_root.gd" id="3_root"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_sky"]
+shader = ExtResource("2_sky")
+
+[sub_resource type="Sky" id="Sky_grad"]
+sky_material = SubResource("ShaderMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_sw"]
+background_mode = 2
+sky = SubResource("Sky_grad")
+ambient_light_source = 0
+reflected_light_source = 0
+tonemap_mode = 0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_cloth"]
+render_priority = 0
+shader = ExtResource("1_cloth")
+
+[node name="SmoothWave" type="Node3D"]
+script = ExtResource("3_root")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_sw")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 6, 44)
+fov = 40.0
+near = 0.1
+far = 400.0
+
+[node name="Cloth" type="MultiMeshInstance3D" parent="."]
+material_override = SubResource("ShaderMaterial_cloth")

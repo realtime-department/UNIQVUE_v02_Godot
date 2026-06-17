@@ -857,25 +857,24 @@ func _build_stage_config(parent: Node) -> void:
 	scene_label.add_theme_font_size_override("font_size", 10)
 	scene_label.add_theme_color_override("font_color", COL_MUTED)
 	body.add_child(scene_label)
-	var scene_row1 := HBoxContainer.new()
-	scene_row1.add_theme_constant_override("separation", 4)
-	var scene_row2 := HBoxContainer.new()
-	scene_row2.add_theme_constant_override("separation", 4)
-	body.add_child(scene_row1)
-	body.add_child(scene_row2)
-	var scene_labels_arr := ["Tunnel", "Wave", "Stripes", "Lines", "Plexus", "Cubic", "Structure"]
+	# Labels direkt aus der Registry (BackgroundStage.SCENE_LABELS) -> bleibt
+	# automatisch synchron, wenn dort Szenen ergaenzt werden. Zeilen zu je 4.
+	var scene_labels_arr: Array = preload("res://background_stage.gd").SCENE_LABELS
+	var per_row := 4
+	var cur_row: HBoxContainer = null
 	for si in range(scene_labels_arr.size()):
-		var sb := _cfg_button(scene_labels_arr[si])
+		if si % per_row == 0:
+			cur_row = HBoxContainer.new()
+			cur_row.add_theme_constant_override("separation", 4)
+			body.add_child(cur_row)
+		var sb := _cfg_button(str(scene_labels_arr[si]))
 		sb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var target_idx := si
 		sb.pressed.connect(func() -> void:
 			var stage := get_node_or_null("/root/BackgroundStage")
 			if stage != null:
 				stage.call("transition_to", target_idx))
-		if si < 4:
-			scene_row1.add_child(sb)
-		else:
-			scene_row2.add_child(sb)
+		cur_row.add_child(sb)
 
 	# --- Master blackout ---
 	var black_row := HBoxContainer.new()

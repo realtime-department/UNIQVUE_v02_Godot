@@ -1,0 +1,56 @@
+[gd_scene load_steps=10 format=3 uid="uid://cquantum000001"]
+
+[ext_resource type="Script" path="res://quantum_sim.gd" id="1_sim"]
+[ext_resource type="Shader" path="res://quantum.gdshader" id="2_poly"]
+[ext_resource type="Shader" path="res://quantum_edge.gdshader" id="3_edge"]
+[ext_resource type="Shader" path="res://quantum_point.gdshader" id="4_point"]
+[ext_resource type="Shader" path="res://gradient_sky.gdshader" id="5_sky"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_sky"]
+shader = ExtResource("5_sky")
+
+[sub_resource type="Sky" id="Sky_grad"]
+sky_material = SubResource("ShaderMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_q"]
+background_mode = 2
+sky = SubResource("Sky_grad")
+ambient_light_source = 0
+reflected_light_source = 0
+tonemap_mode = 0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_poly"]
+render_priority = 0
+shader = ExtResource("2_poly")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_edge"]
+render_priority = 0
+shader = ExtResource("3_edge")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_point"]
+render_priority = 0
+shader = ExtResource("4_point")
+shader_parameter/u_shape = 2
+
+[node name="Quantum" type="Node3D"]
+script = ExtResource("1_sim")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_q")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 150)
+fov = 46.0
+near = 0.1
+far = 3000.0
+
+[node name="Tube" type="Node3D" parent="."]
+
+[node name="Poly" type="MultiMeshInstance3D" parent="Tube"]
+material_override = SubResource("ShaderMaterial_poly")
+
+[node name="Edges" type="MultiMeshInstance3D" parent="Tube"]
+material_override = SubResource("ShaderMaterial_edge")
+
+[node name="Points" type="MultiMeshInstance3D" parent="Tube"]
+material_override = SubResource("ShaderMaterial_point")
