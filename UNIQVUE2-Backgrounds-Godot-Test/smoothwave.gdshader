@@ -1,26 +1,26 @@
 shader_type spatial;
-// Smooth Wave — ueberlagerte transparente "Tuecher" (Port aus studio-v026.html
-// createSmoothWaveModule). Prozedural deformierte Plane-Meshes mit Vertex-
-// Displacement entlang X und ueber die Tiefe (Faltung), halbtransparent
-// (Alpha-over, NormalBlending im Web -> blend_mix hier) mit gefuelltem
-// durchscheinendem Inneren und sanfter Kantenaufhellung (Fresnel + Rand).
+// Smooth Wave — layered transparent "sheets" (port from studio-v026.html
+// createSmoothWaveModule). Procedurally deformed plane meshes with vertex
+// displacement along X and over depth (fold), semi-transparent
+// (alpha-over, NormalBlending in web -> blend_mix here) with filled
+// translucent interior and soft edge brightening (Fresnel + rim).
 //
-// Anders als die uebrigen Module: ALPHA-OVER statt additiv. Die Tuecher
-// liegen translucent ueber dem gradient_sky-Hintergrund. depth_draw_never +
-// feste Instanz-Reihenfolge (MultiMesh-Index = g*MAX_LAYERS+l) reproduziert
-// die renderOrder des Web-Originals.
+// Unlike the other modules: ALPHA-OVER instead of additive. The sheets
+// lie translucent over the gradient_sky background. depth_draw_never +
+// fixed instance order (MultiMesh index = g*MAX_LAYERS+l) reproduces
+// the renderOrder of the web original.
 //
-// Farben zentral aus der globalen Palette: elem_a = Tuch-Basis, elem_b =
-// Kante/Glanz. Pro-Instanz-Daten (Form-Seed + Einblend-Fade) kommen ueber
-// INSTANCE_CUSTOM, Layer-/Gruppen-Versatz + Ausrichtung ueber die Instanz-
-// bzw. Knoten-Transform (smoothwave_root.gd).
+// Colors centrally from the global palette: elem_a = sheet base, elem_b =
+// edge/highlight. Per-instance data (shape seed + fade-in) come via
+// INSTANCE_CUSTOM, layer/group offset + orientation via the instance
+// or node transform (smoothwave_root.gd).
 render_mode unshaded, depth_draw_never, blend_mix, cull_disabled;
 
 global uniform vec4 elem_a : source_color;
 global uniform vec4 elem_b : source_color;
 
-// Skript-getriebene Uniforms: unter '_Live' versteckt, damit ParamStore nur die
-// sauberen scene/*-Exports des Roots erfasst (Gruppen mit '_' werden ignoriert).
+// Script-driven uniforms: hidden under '_Live' so ParamStore only captures the
+// clean scene/* exports of the root (groups with '_' are ignored).
 group_uniforms _Live;
 uniform float u_speed = 0.28;
 uniform float u_wavelength = 1.5;
@@ -42,8 +42,8 @@ varying float v_clone_fade;
 void vertex() {
 	vec3 pos = VERTEX;
 	float t = TIME * u_speed;
-	float seed = INSTANCE_CUSTOM.x;      // uPhase (Form-Variation je Layer/Gruppe)
-	v_clone_fade = INSTANCE_CUSTOM.y;    // uCloneFade (weiches Ein-/Ausblenden)
+	float seed = INSTANCE_CUSTOM.x;      // uPhase (shape variation per layer/group)
+	v_clone_fade = INSTANCE_CUSTOM.y;    // uCloneFade (soft fade-in/out)
 	float invwl = 1.0 / max(0.15, u_wavelength);
 	float fx = pos.x;
 	float fz = pos.z;

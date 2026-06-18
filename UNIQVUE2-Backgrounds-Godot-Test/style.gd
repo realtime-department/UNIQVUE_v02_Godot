@@ -1,25 +1,25 @@
 extends Node
-## STYLE — zentrale, background-uebergreifende Farbpalette (Phase S0).
+## STYLE — central, cross-background color palette (phase S0).
 ##
-## Haelt 8 Farben: 5-Stop-Vertikal-Gradient (zenith..ground) + Depth-Fog +
-## zwei Element-Tints (elem_a/elem_b). Diese Palette gilt fuer ALLE Hintergruende
-## gemeinsam (entspricht STYLE im Web-Studio, studio-v005.html:230-260).
+## Holds 8 colors: 5-stop vertical gradient (zenith..ground) + depth fog +
+## two element tints (elem_a/elem_b). This palette applies to ALL backgrounds
+## together (corresponds to STYLE in the web studio, studio-v005.html:230-260).
 ##
-## Die Palette wird in GLOBALE Shader-Uniforms gespiegelt
-## (RenderingServer.global_shader_parameter_set). Dadurch lesen Gradient-Sky und
-## jeder Szenen-Shader dieselben Werte ueber `global uniform vec4 <key> : source_color;`
-## — keine per-Szene-Verkabelung noetig.
+## The palette is mirrored to GLOBAL shader uniforms
+## (RenderingServer.global_shader_parameter_set). This lets the Gradient-Sky and
+## every scene shader read the same values via `global uniform vec4 <key> : source_color;`
+## — no per-scene wiring needed.
 ##
-## Farb-Konvention: die Palette haelt sRGB-Farben (so wie der ColorPicker sie zeigt).
-## Shader deklarieren die Uniforms mit `: source_color` -> Godot wandelt EINMAL nach
-## linear an der Shader-Grenze. GDScript-Verbraucher (z.B. tunnel_sim.gd faerbt
-## CPU-seitig die Vertex-Farben) lesen die sRGB-Farbe direkt via get_color().
+## Color convention: the palette holds sRGB colors (as shown by the ColorPicker).
+## Shaders declare uniforms with `: source_color` -> Godot converts ONCE to
+## linear at the shader boundary. GDScript consumers (e.g. tunnel_sim.gd colors
+## vertex colors on the CPU) read the sRGB color directly via get_color().
 ##
-## changed feuert nach jeder Aenderung -> die UI kann sich aktualisieren.
+## changed fires after every change -> the UI can update itself.
 
 signal changed
 
-# Schluessel == Name des globalen Shader-Uniforms (siehe project.godot [shader_globals]).
+# Key == name of the global shader uniform (see project.godot [shader_globals]).
 const DEFAULTS := {
 	"sky_zenith":     Color("02060d"),
 	"sky_mid":        Color("06121f"),
@@ -40,7 +40,7 @@ func _ready() -> void:
 	_apply_all()
 
 
-# Reihenfolge der Schluessel (fuer eine stabile UI-Auflistung).
+# Key order (for a stable UI listing).
 func keys() -> Array:
 	return DEFAULTS.keys()
 
@@ -57,7 +57,7 @@ func set_color(key: String, c: Color) -> void:
 	changed.emit()
 
 
-# Ganze Palette aus einem Dict {key: Color} uebernehmen (fuer spaetere Presets/States).
+# Apply an entire palette from a dict {key: Color} (for presets/states).
 func set_palette(p: Dictionary) -> void:
 	for k: String in DEFAULTS:
 		if p.has(k) and p[k] is Color:
@@ -65,7 +65,7 @@ func set_palette(p: Dictionary) -> void:
 	_apply_all()
 
 
-# Aktuelle Palette als Kopie (fuer Snapshots/Export).
+# Current palette as a copy (for snapshots/export).
 func get_palette() -> Dictionary:
 	return _palette.duplicate()
 

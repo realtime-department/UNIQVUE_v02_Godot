@@ -3,13 +3,15 @@ shader_type spatial;
 // Tint = mix(fog_color, elem_a, tint_mix), updated each frame via uniform.
 render_mode unshaded, blend_add, depth_draw_never, cull_disabled;
 
-uniform sampler2D tex_ground : source_color, filter_linear_mipmap, hint_default_white;
+uniform sampler2D tex_ground : source_color, filter_linear_mipmap_anisotropic, hint_default_white;
+uniform float repeat_y   : hint_range(1.0, 20.0) = 8.53;
+group_uniforms _Sync;
 uniform float opacity    : hint_range(0.0, 1.5) = 0.78;
 uniform float scroll     = 0.0;
-uniform float repeat_y   : hint_range(1.0, 20.0) = 8.53;
+uniform vec3  tint       : source_color = vec3(0.66, 0.66, 0.66);
+group_uniforms;
 uniform float fade_start = 3200.0;
 uniform float fade_end   = 6600.0;
-uniform vec3  tint       : source_color = vec3(0.66, 0.66, 0.66);
 
 varying vec2  v_uv;
 varying float v_depth;

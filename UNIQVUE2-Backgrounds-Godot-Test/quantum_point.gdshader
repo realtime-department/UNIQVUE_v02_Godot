@@ -1,8 +1,8 @@
 shader_type spatial;
-// Quantum — PUNKTE (Port aus studio-v026.html pointVert/pointFrag).
-// Gleiche radiale fBm-Verformung wie quantum.gdshader; Punktgroesse skaliert mit
-// Tiefe, Form ueber u_shape (0 Kreis, 1 Ring, 2 Quadrat, 3 Stern, 4 Kreuz).
-// Punktfarbe = elem_b. Additiv.
+// Quantum — POINTS (port from studio-v026.html pointVert/pointFrag).
+// Same radial fBm deformation as quantum.gdshader; point size scales with
+// depth, shape via u_shape (0 circle, 1 ring, 2 square, 3 star, 4 cross).
+// Point color = elem_b. Additive.
 render_mode unshaded, depth_draw_never, blend_add, cull_disabled, use_point_size;
 
 global uniform vec4 fog_color : source_color;
@@ -66,8 +66,8 @@ float fbm(vec3 p) {
 	}
 	return a;
 }
-// Stage-Builtins (VERTEX/INSTANCE_CUSTOM) sind in Hilfsfunktionen NICHT verfuegbar
-// und werden als Parameter durchgereicht (phase = INSTANCE_CUSTOM.x). TIME ist global ok.
+// Stage builtins (VERTEX/INSTANCE_CUSTOM) are NOT available in helper functions
+// and are passed as parameters (phase = INSTANCE_CUSTOM.x). TIME is globally ok.
 float radialN(float u, float ang, float t, float phase) {
 	float ns = 0.018 / max(0.2, u_wavelength) * TUBE_LEN;
 	vec3 dir = vec3(0.0, cos(ang), sin(ang));

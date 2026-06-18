@@ -10,7 +10,7 @@ extends Node3D
 ## Colors come from global STYLE uniforms (fog_color/elem_a/elem_b) — NO @export
 ## Color.  @exports are captured by ParamStore as scene/* entries.
 
-@export_group("Welt & Flug")
+@export_group("World & Flight")
 @export_range(0.0, 1.5, 0.02)  var speed: float = 0.16
 @export_range(-1.5, 1.5, 0.02) var rotate: float = 0.0
 @export_range(8.0, 40.0, 0.5)  var tunnel_size: float = 26.5
@@ -27,18 +27,18 @@ extends Node3D
 @export_range(0.0, 1.5, 0.02)  var edge_glow: float = 0.48
 @export_range(0.2, 1.5, 0.05)  var opacity: float = 1.0
 
-@export_group("Partikel")
+@export_group("Particles")
 @export_range(0.0, 3.0, 0.05) var particles: float = 3.0
 @export_range(0, 4)            var shape: int = 0
 
-@export_group("Tiefe & Fog")
+@export_group("Depth & Fog")
 @export_range(60.0, 1200.0, 20.0) var fog_start: float = 140.0
 @export_range(0.0, 2.0, 0.05)     var fog_density: float = 1.10
 
-@export_group("Kamera")
-@export_range(35.0, 110.0, 1.0) var cam_fov: float = 62.0
+@export_group("Camera")
 @export_range(-180.0, 180.0, 1.0) var cam_roll: float = 0.0
 @export_range(0.0, 8.0, 0.2)   var cam_sway: float = 0.0
+@export_range(35.0, 110.0, 1.0) var cam_fov: float = 62.0
 
 const COLS := 10
 const ROWS := 150
@@ -63,7 +63,18 @@ var _pseed:   PackedFloat32Array
 var _surf_mm: MultiMesh
 var _line_mm: MultiMesh
 
-var _p_mesh: ImmediateMesh
+# Persistent MultiMesh buffers (16 floats/instance: 3 transform rows = 12,
+# then 4 custom-data floats). Filled per frame and uploaded in ONE
+# multimesh_set_buffer call per mesh instead of 6000 set_instance_transform.
+var _surf_buf: PackedFloat32Array
+var _line_buf: PackedFloat32Array
+
+# Persistent particle buffers, filled by index each frame then uploaded once
+# via a single add_surface_from_arrays (replaces per-vertex ImmediateMesh).
+var _p_pos: PackedVector3Array
+var _p_col: PackedColorArray
+
+var _p_mesh: ArrayMesh
 var _surf_mat: ShaderMaterial
 var _line_mat: ShaderMaterial
 var _part_mat: ShaderMaterial
@@ -93,8 +104,15 @@ func _ready() -> void:
 	_line_mm.mesh             = _make_outline_mesh()
 	_line.multimesh           = _line_mm
 
+	# Persistent buffers: 16 floats/instance (12 transform + 4 custom data).
+	_surf_buf = PackedFloat32Array(); _surf_buf.resize(TILES * 16)
+	_line_buf = PackedFloat32Array(); _line_buf.resize(TILES * 16)
+
 	# Per-instance seed: cellSeed[ci] with ci = s*PER_WALL + r*COLS + c
 	# (the reference aSeed mapping), set once — it never changes.
+	# The custom-data slots (o+12..o+15 = Color(sd,0,0,1)) are also written
+	# here ONCE, since the seed never changes after setup. idx runs in
+	# s->c->r order, identical to _write_matrices() below.
 	_seed = PackedFloat32Array(); _seed.resize(TILES)
 	var idx := 0
 	for s in range(4):
@@ -103,8 +121,12 @@ func _ready() -> void:
 				var ci := s * PER_WALL + r * COLS + c
 				var sd := _hsh(float(ci) * 0.7)
 				_seed[idx] = sd
-				_surf_mm.set_instance_custom_data(idx, Color(sd, 0.0, 0.0, 1.0))
-				_line_mm.set_instance_custom_data(idx, Color(sd, 0.0, 0.0, 1.0))
+				# Pre-fill custom data (r,g,b,a) = (sd,0,0,1) for both buffers.
+				var o := idx * 16
+				_surf_buf[o + 12] = sd; _surf_buf[o + 13] = 0.0
+				_surf_buf[o + 14] = 0.0; _surf_buf[o + 15] = 1.0
+				_line_buf[o + 12] = sd; _line_buf[o + 13] = 0.0
+				_line_buf[o + 14] = 0.0; _line_buf[o + 15] = 1.0
 				idx += 1
 
 	var big := AABB(Vector3(-400.0, -400.0, -1800.0), Vector3(800.0, 800.0, 1900.0))
@@ -122,7 +144,10 @@ func _ready() -> void:
 		_pbase_z[i] = _hsh(float(i) * 3.3 + 0.5)
 		_pseed[i]   = _hsh(float(i) * 7.7 + 0.5)
 
-	_p_mesh        = ImmediateMesh.new()
+	# Persistent particle ArrayMesh + buffers (filled by index, uploaded once).
+	_p_pos = PackedVector3Array(); _p_pos.resize(PMAX)
+	_p_col = PackedColorArray();   _p_col.resize(PMAX)
+	_p_mesh        = ArrayMesh.new()
 	_points.mesh   = _p_mesh
 	_points.custom_aabb = big
 
@@ -164,7 +189,7 @@ func _make_outline_mesh() -> ArrayMesh:
 
 func _process(delta: float) -> void:
 	var dt := minf(delta, 0.05)
-	_t += dt
+	_t = fmod(_t + dt, TAU * 1000.0)
 	var adv := dt * speed * 28.0
 	_tunnel_rot += dt * rotate * 0.2
 	_scroll -= adv
@@ -211,30 +236,57 @@ func _write_matrices() -> void:
 				var wx := lx * ca - ly * sa
 				var wy := lx * sa + ly * ca
 				var t := Transform3D(basis, Vector3(wx, wy, -zc))
-				_surf_mm.set_instance_transform(idx, t)
-				_line_mm.set_instance_transform(idx, t)
+				# Write the 12 transform floats into the buffer (3 rows of
+				# [basis.x.k, basis.y.k, basis.z.k, origin.k]). Custom-data
+				# floats at o+12..o+15 are pre-filled once in _ready().
+				var o := idx * 16
+				var bx := t.basis.x; var by := t.basis.y; var bz := t.basis.z
+				var og := t.origin
+				_surf_buf[o + 0] = bx.x; _surf_buf[o + 1] = by.x
+				_surf_buf[o + 2] = bz.x; _surf_buf[o + 3] = og.x
+				_surf_buf[o + 4] = bx.y; _surf_buf[o + 5] = by.y
+				_surf_buf[o + 6] = bz.y; _surf_buf[o + 7] = og.y
+				_surf_buf[o + 8] = bx.z; _surf_buf[o + 9] = by.z
+				_surf_buf[o + 10] = bz.z; _surf_buf[o + 11] = og.z
+				# Always write line buffer so re-enabling outlines doesn't flash stale transforms.
+				_line_buf[o + 0] = bx.x; _line_buf[o + 1] = by.x
+				_line_buf[o + 2] = bz.x; _line_buf[o + 3] = og.x
+				_line_buf[o + 4] = bx.y; _line_buf[o + 5] = by.y
+				_line_buf[o + 6] = bz.y; _line_buf[o + 7] = og.y
+				_line_buf[o + 8] = bx.z; _line_buf[o + 9] = by.z
+				_line_buf[o + 10] = bz.z; _line_buf[o + 11] = og.z
 				idx += 1
+	# ONE upload per mesh per frame instead of 6000 RS round-trips each.
+	RenderingServer.multimesh_set_buffer(_surf_mm.get_rid(), _surf_buf)
+	if outlines:
+		RenderingServer.multimesh_set_buffer(_line_mm.get_rid(), _line_buf)
 	_surf_mm.visible_instance_count = idx
 	_line_mm.visible_instance_count = idx if outlines else 0
 
 
 func _update_particles() -> void:
 	_p_mesh.clear_surfaces()
+	if speed <= 0.0:
+		return
 	var n := mini(PMAX, int(float(PMAX) * (particles / 3.0)))
 	if n <= 0:
 		return
 	var half := tunnel_size * 0.92
-	_p_mesh.surface_begin(Mesh.PRIMITIVE_POINTS)
+	# Fill the first n entries of the persistent buffers, then upload once.
 	for i in range(n):
 		var zf := fmod(_pbase_z[i] + _p_scroll, 1.0)
 		if zf < 0.0: zf += 1.0
-		_p_mesh.surface_set_color(Color(_pseed[i], 0.0, 0.0, 1.0))
-		_p_mesh.surface_add_vertex(Vector3(
+		_p_pos[i] = Vector3(
 			_pbase_x[i] * half,
 			_pbase_y[i] * half,
 			-zf * _span_z
-		))
-	_p_mesh.surface_end()
+		)
+		_p_col[i] = Color(_pseed[i], 0.0, 0.0, 1.0)
+	var arrs: Array = []
+	arrs.resize(Mesh.ARRAY_MAX)
+	arrs[Mesh.ARRAY_VERTEX] = _p_pos.slice(0, n)
+	arrs[Mesh.ARRAY_COLOR]  = _p_col.slice(0, n)
+	_p_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, arrs)
 
 
 func _update_camera() -> void:

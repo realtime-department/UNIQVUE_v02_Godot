@@ -1,26 +1,26 @@
 extends CanvasLayer
-## EIN globales Laufzeit-Bedienpanel als Autoload (Singleton). Es lebt AUSSERHALB
-## der einzelnen Szenen und bleibt beim Szenenwechsel bestehen, daher:
-##   - keine UI-Logik/-Knoten in den einzelnen .tscn,
-##   - Panel-Position und Sichtbarkeit bleiben beim TRANSITION-Wechsel erhalten.
+## ONE global runtime control panel as Autoload (Singleton). It lives OUTSIDE
+## the individual scenes and persists across scene changes, therefore:
+##   - no UI logic/nodes in the individual .tscn,
+##   - panel position and visibility are preserved during TRANSITION switches.
 ##
-## Beim (Neu-)Laden einer Szene werden nur die Regler neu aufgebaut, automatisch
-## ausgelesen aus:
-##   1) @export-Variablen des Szenen-Wurzelskripts (z.B. tunnel_sim.gd) inkl. Gruppen,
-##   2) Shader-Uniforms aller ShaderMaterials (Name/Typ/hint_range/source_color),
-##   3) feste POST-Parameter des WorldEnvironment (Glow/Kontrast/Saettigung).
+## When a scene (re-)loads, only the controls are rebuilt, automatically
+## read from:
+##   1) @export variables of the scene root script (e.g. tunnel_sim.gd) incl. groups,
+##   2) shader uniforms of all ShaderMaterials (name/type/hint_range/source_color),
+##   3) fixed POST parameters of the WorldEnvironment (Glow/Contrast/Saturation).
 ##
-## - Tab blendet das Panel ein/aus, Titelleiste zieht das Panel frei.
-## - TRANSITION wechselt zur naechsten Szene (Reihenfolge: SCENES).
+## - Tab toggles the panel, title bar drags the panel freely.
+## - TRANSITION switches to the next scene (order: SCENES).
 
-const PANEL_WIDTH := 300.0      # feste Gesamtbreite (unabhaengig von Szene/Labels)
-const PANEL_HEIGHT := 780.0     # feste Gesamthoehe (unabhaengig vom Inhalt)
+const PANEL_WIDTH := 300.0      # fixed total width (independent of scene/labels)
+const PANEL_HEIGHT := 780.0     # fixed total height (independent of content)
 const LABEL_WIDTH := 116.0
 const VALUE_WIDTH := 50.0
 const COL_MUTED := Color(0.62, 0.66, 0.72)
 
-# Globale Post-Parameter (Master-Environment, nur Bloom/Glow): [property, min, max, step].
-# Tonemap/Vignette/Grain liegen im Overlay-Material (s. _add_overlay_slider), nicht hier.
+# Global post parameters (master environment, Bloom/Glow only): [property, min, max, step].
+# Tonemap/Vignette/Grain live in the overlay material (see _add_overlay_slider), not here.
 const POST_PARAMS := [
 	["glow_intensity", 0.0, 3.0, 0.01],
 	["glow_strength", 0.0, 3.0, 0.01],
@@ -45,31 +45,31 @@ var _panel: PanelContainer
 var _title: Label
 var _rows: VBoxContainer
 var _dragging := false
-# Auf/Zu-Status klappbarer Sektionen, je Titel; ueberlebt den Szenen-Neuaufbau.
+# Collapsed state of sections, per title; survives scene rebuild.
 var _collapsed := {}
-# STYLE-Swatches (persistent im outer-Container) zum Nach-Synchronisieren nach
-# einem Preset-LOAD — sonst zeigen die Farbfelder noch die alten Werte.
+# STYLE swatches (persistent in outer container) for re-syncing after
+# a preset LOAD — otherwise the color fields still show the old values.
 var _style_swatches: Array = []
-# SEQUENCE-Sektion (persistent im outer-Container): Schritt-Liste + Dropdown + Status.
+# SEQUENCE section (persistent in outer container): step list + dropdown + status.
 var _seq_list: VBoxContainer
 var _seq_opt: OptionButton
 var _seq_status: Label
-# FPS-Anzeige.
+# FPS display.
 var _fps_label: Label
-# FPS-Aktualisierungs-Zaehler.
+# FPS update counter.
 var _fps_timer: float = 0.0
-# Anti-Aliasing-Stufe (ueberlebt Szenen-Neuaufbau).
+# Anti-aliasing level (survives scene rebuild).
 var _aa_index: int = 0
-# Debanding-Staerke (LSB) fuer den finalen Present-Pass (ueberlebt Szenen-Neuaufbau).
+# Debanding strength (LSB) for the final present pass (survives scene rebuild).
 var _dither_strength: float = 1.0
 
 
 func _ready() -> void:
-	layer = 100  # immer ueber der 3D-Szene
+	layer = 100  # always above the 3D scene
 	_build_chrome()
-	# An die Hintergrund-Buehne andocken: sie meldet den aktiven Hintergrund.
+	# Dock to the background stage: it signals the active background.
 	_connect_stage.call_deferred()
-	# Bei Fensterwechsel (PREVIEW/SPAN/WINDOW) das Panel sichtbar halten.
+	# Keep panel visible on window change (PREVIEW/SPAN/WINDOW).
 	get_window().size_changed.connect(_on_window_resized)
 
 
@@ -80,14 +80,14 @@ func _on_window_resized() -> void:
 	_panel.position = _panel.position.clamp(Vector2.ZERO, (vp - _panel.size).max(Vector2.ZERO))
 
 
-# --------------------------------------------------------------- Panel-Geruest
+# --------------------------------------------------------------- Panel frame
 
 func _build_chrome() -> void:
 	_panel = PanelContainer.new()
 	_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	# Feste Gesamtgroesse fuer ALLE Szenen: Breite UND Hoehe sind gepinnt, der
-	# scrollbare Reglerbereich (s.u.) faengt jede Inhaltsmenge ab -> kein Springen
-	# der Panelgroesse beim Szenenwechsel (z.B. wenn die Scrollbar erscheint).
+	# Fixed total size for ALL scenes: width AND height are pinned, the
+	# scrollable control area (see below) absorbs any content amount -> no jumping
+	# of panel size on scene switch (e.g. when the scrollbar appears).
 	_panel.custom_minimum_size = Vector2(PANEL_WIDTH, PANEL_HEIGHT)
 	_panel.size = Vector2(PANEL_WIDTH, PANEL_HEIGHT)
 	_panel.clip_contents = true
@@ -102,7 +102,7 @@ func _build_chrome() -> void:
 	outer.add_theme_constant_override("separation", 2)
 	_panel.add_child(outer)
 
-	# --- Titelleiste (Drag-Griff) ---
+	# --- Title bar (drag handle) ---
 	_title = Label.new()
 	_title.text = "  UNIQVUE2   ·   drag · Tab"
 	_title.add_theme_font_size_override("font_size", 11)
@@ -110,32 +110,32 @@ func _build_chrome() -> void:
 	_title.mouse_filter = Control.MOUSE_FILTER_STOP
 	_title.gui_input.connect(_on_title_input)
 	_title.custom_minimum_size = Vector2(0, 22)
-	# Lange Szenennamen duerfen die Panelbreite nicht aufblaehen.
+	# Long scene names must not inflate the panel width.
 	_title.clip_text = true
 	outer.add_child(_title)
 
-	# --- STAGE: virtuelle Display-Konfiguration (global, bleibt ueber Szenen) ---
+	# --- STAGE: virtual display configuration (global, persists across scenes) ---
 	_build_stage_config(outer)
 
-	# --- STYLE: zentrale Farbpalette (global, background-uebergreifend) ---
+	# --- STYLE: central color palette (global, shared across backgrounds) ---
 	_build_style_config(outer)
 
-	# --- PRESET: benannte Presets speichern/laden (S3, global) ---
+	# --- PRESET: named presets save/load (S3, global) ---
 	_build_preset_config(outer)
 
-	# --- SEQUENCE: Preset-Playlist + Playback (S4, global) ---
+	# --- SEQUENCE: preset playlist + playback (S4, global) ---
 	_build_sequencer_config(outer)
 
-	# --- Scrollbarer Reglerbereich (Inhalt wird pro Szene neu befuellt) ---
+	# --- Scrollable control area (content rebuilt per scene) ---
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	# Vertikale Scrollbar IMMER anzeigen -> ihr Platz ist dauerhaft reserviert.
-	# Sonst springt der Inhalt seitlich, sobald eine Szene ohne Scrollbar auskommt
-	# und die Reglerspalte die freigewordene Breite einnimmt.
+	# Always show vertical scrollbar -> its space is permanently reserved.
+	# Otherwise content shifts sideways when a scene needs no scrollbar
+	# and the control column takes the freed width.
 	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
-	# Faengt die gesamte Inhaltsvariation ab: fuellt den im Panel verbleibenden
-	# Platz (EXPAND_FILL) und scrollt intern. Dadurch bleibt die Panelgroesse fix,
-	# egal wie viele Regler die Szene erzeugt.
+	# Absorbs all content variation: fills the remaining panel space
+	# (EXPAND_FILL) and scrolls internally. Panel size stays fixed,
+	# regardless of how many controls the scene generates.
 	scroll.custom_minimum_size = Vector2(0, 0)
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	outer.add_child(scroll)
@@ -145,7 +145,7 @@ func _build_chrome() -> void:
 	_rows.add_theme_constant_override("separation", 3)
 	scroll.add_child(_rows)
 
-	# --- Transition-Dauer (Zahlenfeld), bleibt ueber alle Szenen bestehen ---
+	# --- Transition duration (number field), persists across all scenes ---
 	var trow := HBoxContainer.new()
 	trow.add_theme_constant_override("separation", 6)
 	trow.custom_minimum_size = Vector2(0, 24)
@@ -170,7 +170,7 @@ func _build_chrome() -> void:
 		if stage != null:
 			stage.set("transition_time", value))
 
-	# --- TRANSITION (Szenenwechsel), bleibt ueber alle Szenen bestehen ---
+	# --- TRANSITION (scene switch), persists across all scenes ---
 	var btn := Button.new()
 	btn.text = "TRANSITION"
 	btn.flat = true
@@ -184,7 +184,7 @@ func _build_chrome() -> void:
 	btn.pressed.connect(_on_transition)
 	outer.add_child(btn)
 
-	# FPS-Anzeige (ganz unten).
+	# FPS display (bottom).
 	_fps_label = Label.new()
 	_fps_label.add_theme_font_size_override("font_size", 10)
 	_fps_label.add_theme_color_override("font_color", COL_MUTED)
@@ -199,8 +199,8 @@ func _process(delta: float) -> void:
 		_fps_label.text = "%d fps" % Engine.get_frames_per_second()
 
 
-# An die Hintergrund-Buehne andocken und initial befuellen. Deferred, damit alle
-# Autoloads existieren und der erste Hintergrund schon geladen ist.
+# Dock to the background stage and populate initially. Deferred so all
+# autoloads exist and the first background is already loaded.
 func _connect_stage() -> void:
 	var stage := get_node_or_null("/root/BackgroundStage")
 	if stage == null:
@@ -217,7 +217,7 @@ func _on_active_changed(root: Node) -> void:
 		_populate(root)
 
 
-# --------------------------------------------------------------- Befuellung
+# --------------------------------------------------------------- Populate
 
 func _populate(root: Node) -> void:
 	_title.text = "  %s   ·   drag · Tab" % str(root.name).to_upper()
@@ -226,19 +226,28 @@ func _populate(root: Node) -> void:
 		_rows.remove_child(c)
 		c.queue_free()
 
-	# 1) @export-Variablen des Wurzel-Skripts (CPU-Parameter, z.B. Tunnel).
+	# 1) @export variables of the scene root script (CPU parameters, e.g. Tunnel).
 	if root.get_script() != null:
 		_add_object_props(_rows, root)
 
-	# 2) Shader-Uniforms aller ShaderMaterials in der Szene.
-	for entry in _find_shader_materials(root):
+	# 2) Shader uniforms of all ShaderMaterials in the scene.
+	# @export variables are already visible under step 1; same-named
+	# shader uniforms are skipped (would do nothing — _process()
+	# overwrites them every frame with the @export value).
+	var exported_names := {}
+	if root.get_script() != null:
+		for prop in root.get_property_list():
+			var _usage := int(prop["usage"])
+			if _usage & PROPERTY_USAGE_SCRIPT_VARIABLE and _usage & PROPERTY_USAGE_EDITOR:
+				exported_names[str(prop["name"])] = true
+	for entry in ParamStore._find_shader_materials(root):
 		var node_name: String = str(entry[0])
 		var mat: ShaderMaterial = entry[1]
-		_add_shader_uniforms(_rows, node_name, mat)
+		_add_shader_uniforms(_rows, node_name, mat, exported_names)
 
-	# 3) Globale POST-Parameter. Seit S1 wirkt Post zentral ueber den Master-
-	#    Composite (BackgroundStage.post_environment); faellt auf die Szenen-Env
-	#    zurueck, falls (noch) kein Master vorhanden ist.
+	# 3) Global POST parameters. Since S1 post works centrally via the master
+	#    composite (BackgroundStage.post_environment); falls back to the scene env
+	#    if no master is present (yet).
 	var stage := get_node_or_null("/root/BackgroundStage")
 	var penv: Environment = null
 	if stage != null:
@@ -251,13 +260,13 @@ func _populate(root: Node) -> void:
 		var post_body := _add_section(_rows, "POST")
 		for p in POST_PARAMS:
 			_add_env_slider(post_body, penv, p[0], p[1], p[2], p[3])
-		# Vignette/Grain liegen im Overlay-Material des Master, nicht im Environment.
+		# Vignette/Grain live in the master overlay material, not the environment.
 		if stage != null:
 			var omat: Variant = stage.call("post_overlay")
 			if omat is ShaderMaterial:
 				_add_overlay_slider(post_body, omat, "vignette", 0.0, 1.0, 0.01)
 				_add_overlay_slider(post_body, omat, "grain", 0.0, 0.3, 0.005)
-		# Render-Aufloesung skalieren (½ / ¾ / 1×).
+		# Scale render resolution (½ / ¾ / 1×).
 		var res_row := HBoxContainer.new()
 		res_row.add_theme_constant_override("separation", 4)
 		var half_btn := _cfg_button("½")
@@ -310,7 +319,7 @@ func _populate(root: Node) -> void:
 				_aa_index += 1
 				aa_lbl.text = AA_MODES[_aa_index][0]
 				_apply_aa(get_viewport()))
-		# Dither-Slider (blue-noise-Staerke fuer Style-Gradient).
+		# Dither slider (blue-noise strength for style gradient).
 		var dither_row := _make_row(post_body, "Dither")
 		var dither_s := _make_slider(0.0, 4.0, 0.1, _dither_strength)
 		var dither_v := _make_value_label(_dither_strength, false)
@@ -323,8 +332,8 @@ func _populate(root: Node) -> void:
 			if st != null:
 				st.call("set_deband", value))
 
-	# Leere Sektionen entfernen (z.B. Material-Kopf, dessen Uniforms alle gruppiert
-	# sind -> der Kopf-Body bleibt leer).
+	# Remove empty sections (e.g. material header whose uniforms are all grouped
+	# -> the header body stays empty).
 	for child in _rows.get_children():
 		if child.has_meta("section_body"):
 			var b: Node = child.get_meta("section_body")
@@ -332,44 +341,17 @@ func _populate(root: Node) -> void:
 				child.queue_free()
 
 
-# --------------------------------------------------------------- Auto-Discovery
-
-func _find_shader_materials(root: Node) -> Array:
-	var out: Array = []
-	_collect_shader_materials(root, out)
-	return out
-
-
-func _collect_shader_materials(node: Node, out: Array) -> void:
-	if node is GeometryInstance3D:
-		var gi := node as GeometryInstance3D
-		if gi.material_override is ShaderMaterial:
-			out.append([node.name, gi.material_override])
-	for c in node.get_children():
-		_collect_shader_materials(c, out)
-
-
 func _find_environment(root: Node) -> Environment:
-	var we := _find_world_env(root)
+	var we := ParamStore._find_world_env(root)
 	if we != null:
 		return we.environment
 	return null
 
 
-func _find_world_env(node: Node) -> WorldEnvironment:
-	if node is WorldEnvironment:
-		return node as WorldEnvironment
-	for c in node.get_children():
-		var r := _find_world_env(c)
-		if r != null:
-			return r
-	return null
-
-
-# @export-Variablen + @export_group-Header des Skripts auf 'obj' aufbauen.
+# Build @export variables + @export_group headers of the script on 'obj'.
 func _add_object_props(parent: Node, obj: Object) -> void:
 	var header_done := false
-	var body: Node = parent   # gefuellt, sobald die erste Sektion existiert
+	var body: Node = parent   # populated once the first section exists
 	for prop in obj.get_property_list():
 		var usage: int = int(prop["usage"])
 		var pname: String = str(prop["name"])
@@ -394,8 +376,8 @@ func _add_object_props(parent: Node, obj: Object) -> void:
 		_add_control_for(body, pname, ptype, int(prop["hint"]), str(prop["hint_string"]), getter, setter)
 
 
-# Shader-Uniforms eines Materials aufbauen (inkl. group_uniforms als Subheader).
-func _add_shader_uniforms(parent: Node, node_name: String, mat: ShaderMaterial) -> void:
+# Build shader uniforms of a material (incl. group_uniforms as sub-headers).
+func _add_shader_uniforms(parent: Node, node_name: String, mat: ShaderMaterial, exclude: Dictionary = {}) -> void:
 	if mat.shader == null:
 		return
 	var ulist := mat.shader.get_shader_uniform_list(true)
@@ -403,6 +385,8 @@ func _add_shader_uniforms(parent: Node, node_name: String, mat: ShaderMaterial) 
 	for u in ulist:
 		var usage: int = int(u["usage"])
 		if usage & PROPERTY_USAGE_GROUP:
+			continue
+		if str(u["name"]) in exclude:
 			continue
 		if _supported(int(u["type"])):
 			has_real = true
@@ -419,7 +403,7 @@ func _add_shader_uniforms(parent: Node, node_name: String, mat: ShaderMaterial) 
 		if uname == "":
 			continue
 		if usage & PROPERTY_USAGE_GROUP:
-			# Gruppen mit fuehrendem '_' (z.B. _Sync) aus der UI ausblenden.
+			# Groups with leading '_' (e.g. _Sync) hidden from UI.
 			if uname.begins_with("_"):
 				skip_group = true
 			else:
@@ -427,6 +411,8 @@ func _add_shader_uniforms(parent: Node, node_name: String, mat: ShaderMaterial) 
 				body = _add_section(parent, "  " + uname.to_upper())
 			continue
 		if skip_group:
+			continue
+		if uname in exclude:
 			continue
 		var utype: int = int(u["type"])
 		if not _supported(utype):
@@ -447,11 +433,11 @@ func _supported(t: int) -> bool:
 		or t == TYPE_VECTOR3 or t == TYPE_COLOR or t == TYPE_BOOL)
 
 
-# Erzeugt das passende Control je nach Typ/Hint und bindet es an getter/setter.
+# Create the matching control per type/hint and bind to getter/setter.
 func _add_control_for(parent: Node, label: String, ptype: int, hint: int, hint_string: String, getter: Callable, setter: Callable) -> void:
 	match ptype:
 		TYPE_FLOAT, TYPE_INT:
-			# 'shape'-Parameter: 5-Knopf-Picker statt Schieberegler.
+			# 'shape' parameter: 5-button picker instead of slider.
 			if label == "shape" and ptype == TYPE_INT:
 				_add_shape_picker(parent, label, getter, setter)
 			else:
@@ -472,7 +458,7 @@ func _add_control_for(parent: Node, label: String, ptype: int, hint: int, hint_s
 			_add_check(parent, label, getter, setter)
 
 
-# hint_string "min,max[,step]" -> [min, max, step]. Sonst Heuristik aus Wert.
+# hint_string "min,max[,step]" -> [min, max, step]. Otherwise heuristic from value.
 func _parse_range(hint_string: String, ptype: int, getter: Callable) -> Array:
 	var mn := 0.0
 	var mx := 1.0
@@ -502,12 +488,12 @@ func _parse_range(hint_string: String, ptype: int, getter: Callable) -> Array:
 	return [mn, mx, st]
 
 
-# ------------------------------------------------------------------ Bausteine
+# ------------------------------------------------------------------ Building blocks
 
-# Klappbare Sektion: anklickbarer Header (Chevron + Titel) + Body-Container.
-# Gibt den BODY zurueck — alle Regler dieser Sektion gehoeren dort hinein.
-# Der Auf/Zu-Status wird je Titel in _collapsed gemerkt und ueberlebt den
-# Neuaufbau bei Szenenwechsel.
+# Collapsible section: clickable header (chevron + title) + body container.
+# Returns the BODY — all controls of this section belong there.
+# The open/closed state is stored per title in _collapsed and survives
+# rebuild on scene switch.
 func _add_section(parent: Node, title: String) -> VBoxContainer:
 	var group := VBoxContainer.new()
 	group.add_theme_constant_override("separation", 2)
@@ -542,7 +528,7 @@ func _add_section(parent: Node, title: String) -> VBoxContainer:
 	group.set_meta("section_body", body)
 
 	header.pressed.connect(func() -> void:
-		var now := body.visible          # sichtbar -> jetzt einklappen
+		var now := body.visible          # visible -> collapse now
 		body.visible = not now
 		_collapsed[title] = now
 		header.text = _section_text(title, now))
@@ -632,7 +618,7 @@ func _add_env_slider(parent: Node, env: Environment, prop: String, mn: float, mx
 		v.text = "%.2f" % value)
 
 
-# Slider fuer einen Shader-Parameter des Master-Overlay-Materials (Vignette/Grain).
+# Slider for a shader parameter of the master overlay material (Vignette/Grain).
 func _add_overlay_slider(parent: Node, mat: ShaderMaterial, prop: String, mn: float, mx: float, st: float) -> void:
 	var cur: Variant = mat.get_shader_parameter(prop)
 	var val: float = float(cur) if cur != null else mn
@@ -647,7 +633,7 @@ func _add_overlay_slider(parent: Node, mat: ShaderMaterial, prop: String, mn: fl
 
 
 func _add_shape_picker(parent: Node, label: String, getter: Callable, setter: Callable) -> void:
-	var cur := int(getter.call()) if getter.call() != null else 0
+	var cur: int = int(getter.call())
 	var row := _make_row(parent, label)
 	var hbox := HBoxContainer.new()
 	hbox.add_theme_constant_override("separation", 2)
@@ -703,7 +689,7 @@ func _add_vec3(parent: Node, label: String, mn: float, mx: float, st: float, get
 	var base: Vector3 = cv if cv is Vector3 else Vector3.ZERO
 	for axis in ["x", "y", "z"]:
 		var ax := str(axis)
-		var start: float = base[ax]
+		var start: float = base.x if ax == "x" else (base.y if ax == "y" else base.z)
 		var row := _make_row(parent, label + "." + ax)
 		var s := _make_slider(mn, mx, st, start)
 		var v := _make_value_label(start, false)
@@ -712,7 +698,9 @@ func _add_vec3(parent: Node, label: String, mn: float, mx: float, st: float, get
 		s.value_changed.connect(func(value: float) -> void:
 			var raw: Variant = getter.call()
 			var nd: Vector3 = raw if raw is Vector3 else Vector3.ZERO
-			nd[ax] = value
+			if ax == "x":   nd.x = value
+			elif ax == "y": nd.y = value
+			else:           nd.z = value
 			setter.call(nd)
 			v.text = "%.2f" % value)
 
@@ -731,7 +719,7 @@ func _add_color(parent: Node, label: String, getter: Callable, setter: Callable)
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn.custom_minimum_size = Vector2(0, 18)
 	row.add_child(btn)
-	# source_color-Uniforms akzeptieren Color direkt (Godot castet zu vec3).
+	# source_color uniforms accept Color directly (Godot casts to vec3).
 	btn.color_changed.connect(func(c: Color) -> void:
 		setter.call(c))
 
@@ -746,7 +734,7 @@ func _add_check(parent: Node, label: String, getter: Callable, setter: Callable)
 		setter.call(pressed))
 
 
-# ------------------------------------------------------------------ Interaktion
+# ------------------------------------------------------------------ Interaction
 
 func _on_title_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
@@ -779,11 +767,11 @@ func _on_transition() -> void:
 		stage.call("transition")
 
 
-# ------------------------------------------------------- STAGE / Display-Konfig
+# ------------------------------------------------------- STAGE / Display config
 
-## Globaler Bereich zum freien Einrichten der virtuellen Bildschirmkonfiguration.
-## Steuert das DisplaySetup-Autoload (Raster, Vorschau, Span). Bleibt ueber alle
-## Szenen bestehen (liegt im 'outer'-Container, nicht im pro-Szene gefuellten _rows).
+## Global section for configuring the virtual screen layout.
+## Controls the DisplaySetup autoload (grid, preview, span). Persists across all
+## scenes (lives in the 'outer' container, not the per-scene _rows).
 func _build_stage_config(parent: Node) -> void:
 	var ds := get_node_or_null("/root/DisplaySetup")
 	if ds == null:
@@ -791,7 +779,7 @@ func _build_stage_config(parent: Node) -> void:
 
 	var body := _add_section(parent, "STAGE")
 
-	# Raster: Spalten x Zeilen
+	# Grid: cols x rows
 	var grid_row := HBoxContainer.new()
 	grid_row.add_theme_constant_override("separation", 6)
 	grid_row.add_child(_cfg_label("cols"))
@@ -802,7 +790,7 @@ func _build_stage_config(parent: Node) -> void:
 	grid_row.add_child(rows_spin)
 	body.add_child(grid_row)
 
-	# Pixel je Einzelschirm
+	# Pixels per individual screen
 	var px_row := HBoxContainer.new()
 	px_row.add_theme_constant_override("separation", 6)
 	px_row.add_child(_cfg_label("scr w"))
@@ -813,7 +801,7 @@ func _build_stage_config(parent: Node) -> void:
 	px_row.add_child(h_spin)
 	body.add_child(px_row)
 
-	# Info: Raster, Seitenverhaeltnis, Gesamtaufloesung
+	# Info: grid, aspect ratio, total resolution
 	var info := Label.new()
 	info.add_theme_font_size_override("font_size", 10)
 	info.add_theme_color_override("font_color", COL_MUTED)
@@ -832,7 +820,7 @@ func _build_stage_config(parent: Node) -> void:
 	for sp in [cols_spin, rows_spin, w_spin, h_spin]:
 		sp.value_changed.connect(func(_v: float) -> void: apply.call())
 
-	# Modus-Knoepfe: Vorschau / Span / Fenster
+	# Mode buttons: Preview / Span / Window
 	var btn_row := HBoxContainer.new()
 	btn_row.add_theme_constant_override("separation", 4)
 	var prev_btn := _cfg_button("PREVIEW")
@@ -846,7 +834,7 @@ func _build_stage_config(parent: Node) -> void:
 	span_btn.pressed.connect(func() -> void: ds.call("span_screens"))
 	win_btn.pressed.connect(func() -> void: ds.call("restore_window"))
 
-	# Vorschaufenster schliessen, ohne das Hauptfenster zu veraendern.
+	# Close preview window without changing the main window.
 	var close_btn := _cfg_button("CLOSE PREVIEW WINDOWS")
 	body.add_child(close_btn)
 	close_btn.pressed.connect(func() -> void: ds.call("close_preview"))
@@ -857,8 +845,8 @@ func _build_stage_config(parent: Node) -> void:
 	scene_label.add_theme_font_size_override("font_size", 10)
 	scene_label.add_theme_color_override("font_color", COL_MUTED)
 	body.add_child(scene_label)
-	# Labels direkt aus der Registry (BackgroundStage.SCENE_LABELS) -> bleibt
-	# automatisch synchron, wenn dort Szenen ergaenzt werden. Zeilen zu je 4.
+	# Labels directly from the registry (BackgroundStage.SCENE_LABELS) -> stays
+	# automatically in sync when scenes are added there. Rows of 4.
 	var scene_labels_arr: Array = preload("res://background_stage.gd").SCENE_LABELS
 	var per_row := 4
 	var cur_row: HBoxContainer = null
@@ -932,29 +920,110 @@ func _build_stage_config(parent: Node) -> void:
 		hdr_btn.text = "HDR" if pressed else "SDR")
 
 
-## Globaler STYLE-Bereich: die 8 Palettenfarben als gestapelte Swatch-Zeilen
-## (Name links, breiter Farbbalken rechts), in zwei beschriftete Gruppen geteilt.
-## Reihenfolge der Gradient-Stops von oben (Zenit) nach unten (Boden) — spiegelt
-## den tatsaechlichen Himmelsverlauf. Steuert das Style-Autoload, das die Werte in
-## globale Shader-Uniforms spiegelt. Bleibt ueber alle Szenen bestehen.
+## Global STYLE section: the 8 palette colors as stacked swatch rows
+## (name left, wide color bar right), split into two labeled groups.
+## Gradient stop order from top (zenith) to bottom (ground) — mirrors
+## the actual sky gradient. Controls the Style autoload which mirrors values into
+## global shader uniforms. Persists across all scenes.
 func _build_style_config(parent: Node) -> void:
 	var st := get_node_or_null("/root/Style")
 	if st == null:
 		return
 
-	var grad_body := _add_section(parent, "STYLE · GRADIENT")
+	var body := _add_section(parent, "BACKGROUND STYLE")
+
 	for pair in [
 		["sky_zenith", "zenith"], ["sky_mid", "sky"], ["sky_horizon", "horizon"],
 		["sky_ground_mid", "grnd-mid"], ["sky_ground", "ground"],
+		["fog_color", "fog"], ["elem_a", "elem A"], ["elem_b", "elem B"],
 	]:
-		_add_style_swatch(grad_body, st, str(pair[0]), str(pair[1]))
+		_add_style_swatch(body, st, str(pair[0]), str(pair[1]))
 
-	var elem_body := _add_section(parent, "STYLE · ELEMENT")
-	for pair in [["fog_color", "fog"], ["elem_a", "elem A"], ["elem_b", "elem B"]]:
-		_add_style_swatch(elem_body, st, str(pair[0]), str(pair[1]))
+	# Style preset UI (own presets, independent of scene presets).
+	var core := get_node_or_null("/root/BgCore")
+	if core == null:
+		return
+
+	var opt := OptionButton.new()
+	opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	opt.add_theme_font_size_override("font_size", 11)
+	opt.custom_minimum_size = Vector2(0, 24)
+	body.add_child(opt)
+
+	var name_edit := LineEdit.new()
+	name_edit.placeholder_text = "style name"
+	name_edit.add_theme_font_size_override("font_size", 11)
+	name_edit.custom_minimum_size = Vector2(0, 24)
+	body.add_child(name_edit)
+
+	var brow := HBoxContainer.new()
+	brow.add_theme_constant_override("separation", 4)
+	var save_btn := _cfg_button("SAVE")
+	var load_btn := _cfg_button("LOAD")
+	var del_btn  := _cfg_button("DEL")
+	brow.add_child(save_btn)
+	brow.add_child(load_btn)
+	brow.add_child(del_btn)
+	body.add_child(brow)
+
+	var status := Label.new()
+	status.add_theme_font_size_override("font_size", 10)
+	status.add_theme_color_override("font_color", COL_MUTED)
+	status.clip_text = true
+	body.add_child(status)
+
+	var refresh := func() -> void:
+		opt.clear()
+		for n in core.call("list_style_presets"):
+			opt.add_item(str(n))
+		var want := name_edit.text.strip_edges()
+		for i in range(opt.item_count):
+			if opt.get_item_text(i) == want:
+				opt.select(i)
+				break
+	refresh.call()
+
+	opt.item_selected.connect(func(idx: int) -> void:
+		name_edit.text = opt.get_item_text(idx))
+
+	save_btn.pressed.connect(func() -> void:
+		var nm := name_edit.text.strip_edges()
+		if nm == "":
+			status.text = "name?"
+			return
+		if core.call("save_style", nm):
+			status.text = "saved '%s'" % nm
+		else:
+			status.text = "save failed")
+
+	load_btn.pressed.connect(func() -> void:
+		var nm := name_edit.text.strip_edges()
+		if nm == "" and opt.selected >= 0:
+			nm = opt.get_item_text(opt.selected)
+			name_edit.text = nm
+		if nm == "":
+			status.text = "pick a style"
+			return
+		var snap: Dictionary = core.call("load_style", nm)
+		if snap.is_empty():
+			status.text = "not found"
+		else:
+			status.text = "loaded '%s'" % nm
+			_sync_style_swatches())
+
+	del_btn.pressed.connect(func() -> void:
+		var nm := name_edit.text.strip_edges()
+		if nm == "":
+			status.text = "name?"
+			return
+		core.call("delete_style_preset", nm)
+		status.text = "deleted '%s'" % nm)
+
+	if not core.is_connected("style_presets_changed", refresh):
+		core.connect("style_presets_changed", refresh)
 
 
-# Eine Palettenzeile: Name (feste Spalte) + vollbreiter ColorPickerButton.
+# One palette row: name (fixed column) + full-width ColorPickerButton.
 func _add_style_swatch(parent: Node, st: Node, key: String, label: String) -> void:
 	var row := _make_row(parent, label)
 	var btn := ColorPickerButton.new()
@@ -965,13 +1034,13 @@ func _add_style_swatch(parent: Node, st: Node, key: String, label: String) -> vo
 	btn.color_changed.connect(func(c: Color) -> void:
 		st.call("set_color", key, c))
 	row.add_child(btn)
-	# Fuer Nach-Sync nach Preset-LOAD merken (Feld auf den geladenen Wert ziehen).
+	# Track for re-sync after preset LOAD (pull field to loaded value).
 	_style_swatches.append({"btn": btn, "key": key, "st": st})
 
 
-## Globaler PRESET-Bereich (S3): benannte Presets via BgCore speichern/laden/loeschen.
-## Dropdown listet user://presets/*; das Namensfeld bestimmt Ziel von SAVE/LOAD/DEL.
-## Liegt im persistenten outer-Container, also einmalig gebaut (kein Szenen-Neuaufbau).
+## Global PRESET section (S3): named presets via BgCore save/load/delete.
+## Dropdown lists user://presets/*; the name field determines the target of SAVE/LOAD/DEL.
+## Lives in the persistent outer container, built once (no scene rebuild).
 func _build_preset_config(parent: Node) -> void:
 	var core := get_node_or_null("/root/BgCore")
 	if core == null:
@@ -1007,8 +1076,8 @@ func _build_preset_config(parent: Node) -> void:
 	status.clip_text = true
 	body.add_child(status)
 
-	# Dropdown aus den vorhandenen Presets (neu) befuellen; Auswahl auf das Namensfeld
-	# ausrichten, falls es dort einen Treffer gibt.
+	# Populate dropdown from existing presets; align selection to the name field
+	# if there is a match there.
 	var refresh := func() -> void:
 		opt.clear()
 		for n in core.call("list_presets"):
@@ -1056,24 +1125,24 @@ func _build_preset_config(parent: Node) -> void:
 		core.call("delete_preset", nm)
 		status.text = "deleted '%s'" % nm)   # presets_changed -> refresh
 
-	# Liste auf jede Aenderung (SAVE/DEL, auch extern) hin aktualisieren.
+	# Refresh list on any change (SAVE/DEL, also external).
 	if not core.is_connected("presets_changed", refresh):
 		core.connect("presets_changed", refresh)
 
 
-## Nach einem Preset-LOAD die sichtbaren Regler/Swatches an die nun geaenderten
-## Werte angleichen (apply() aendert nur die Parameter, nicht die UI-Positionen).
+## After a preset LOAD, sync the visible controls/swatches to the now-changed
+## values (apply() only changes parameters, not UI positions).
 func _after_preset_loaded() -> void:
 	_sync_style_swatches()
 	var stage := get_node_or_null("/root/BackgroundStage")
 	if stage != null:
 		var r: Variant = stage.call("active_root")
 		if r is Node and r.is_inside_tree():
-			_populate(r)   # baut scene/mat/post/overlay-Regler aus aktuellen Werten neu
+			_populate(r)   # rebuilds scene/mat/post/overlay controls from current values
 
 
-## STYLE-Swatches (im persistenten outer-Container) aus Style nachziehen. Signale
-## blockieren, damit das programmatische Setzen kein set_color zurueckfeuert.
+## Pull STYLE swatches (in the persistent outer container) from Style. Block signals
+## so programmatic setting does not fire set_color back.
 func _sync_style_swatches() -> void:
 	for sw in _style_swatches:
 		var b: ColorPickerButton = sw.btn
@@ -1082,10 +1151,10 @@ func _sync_style_swatches() -> void:
 		b.set_block_signals(false)
 
 
-## Globaler SEQUENCE-Bereich (S4): Preset-Playlist bauen + abspielen via Sequencer.
-## Oben Preset-Picker + ADD, darunter die (hoehenbegrenzte, scrollbare) Schrittliste,
-## darunter PLAY/STOP/NEXT. Liegt im persistenten outer-Container. Startet eingeklappt,
-## damit die Sektion das gepinnte Panel nicht ueberfuellt.
+## Global SEQUENCE section (S4): build + play preset playlist via Sequencer.
+## Top: preset picker + ADD, below: height-limited scrollable step list,
+## below that: PLAY/STOP/NEXT. Lives in the persistent outer container. Starts collapsed
+## so the section does not overflow the pinned panel.
 func _build_sequencer_config(parent: Node) -> void:
 	var seq := get_node_or_null("/root/Sequencer")
 	var core := get_node_or_null("/root/BgCore")
@@ -1096,7 +1165,7 @@ func _build_sequencer_config(parent: Node) -> void:
 
 	var body := _add_section(parent, "SEQUENCE")
 
-	# Preset-Picker + ADD.
+	# Preset picker + ADD.
 	var addrow := HBoxContainer.new()
 	addrow.add_theme_constant_override("separation", 4)
 	_seq_opt = OptionButton.new()
@@ -1110,8 +1179,8 @@ func _build_sequencer_config(parent: Node) -> void:
 	addrow.add_child(add_btn)
 	body.add_child(addrow)
 
-	# Schrittliste — feste Hoehe, scrollt intern (sonst sprengt eine lange Playlist
-	# das gepinnte Panel).
+	# Step list — fixed height, scrolls internally (otherwise a long playlist
+	# overflows the pinned panel).
 	var sc := ScrollContainer.new()
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	sc.custom_minimum_size = Vector2(0, 150)
@@ -1207,7 +1276,7 @@ func _build_sequencer_config(parent: Node) -> void:
 					float(s.get("trans", 1.2)),
 					str(s.get("mode", "zoom"))))
 
-	# Dropdown bei Preset-Aenderung, Liste bei Playback-/Listen-Aenderung aktualisieren.
+	# Refresh dropdown on preset change, list on playback/list change.
 	if not core.is_connected("presets_changed", refresh_opt):
 		core.connect("presets_changed", refresh_opt)
 	if not seq.is_connected("state_changed", _refresh_seq_list):
@@ -1216,7 +1285,7 @@ func _build_sequencer_config(parent: Node) -> void:
 	_refresh_seq_list()
 
 
-## Schrittliste aus dem Sequencer neu aufbauen (an state_changed gebunden).
+## Rebuild step list from the sequencer (bound to state_changed).
 func _refresh_seq_list() -> void:
 	if _seq_list == null:
 		return
@@ -1239,7 +1308,7 @@ func _refresh_seq_list() -> void:
 			_seq_status.text = "%d steps" % count
 
 
-## Eine Schrittzeile: oben Marker+Name+up/down/del, darunter hold/trans-Spinboxen.
+## One step row: top marker+name+up/down/del, below hold/trans spinboxes.
 func _build_seq_step(parent: Node, seq: Node, i: int, cur: int, playing: bool) -> void:
 	var step: Dictionary = seq.call("get_step", i)
 	var active := playing and i == cur

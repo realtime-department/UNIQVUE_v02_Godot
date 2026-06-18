@@ -19,7 +19,7 @@ uniform float z_near     = 6.0;
 uniform float z_far      = 140.0;
 group_uniforms;
 
-group_uniforms Appearance;
+group_uniforms Wire;
 uniform float wire_opacity : hint_range(0.0, 1.5) = 0.35;
 group_uniforms;
 

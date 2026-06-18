@@ -7,11 +7,13 @@ render_mode unshaded, blend_add, depth_draw_never, cull_disabled;
 
 global uniform vec4 elem_b : source_color;
 
+group_uniforms _Sync;
 uniform float glow         : hint_range(0.0, 1.5)    = 0.48;
+uniform float z_far        = 795.0;
+group_uniforms;
 uniform float opacity      : hint_range(0.0, 1.5)    = 1.0;
 uniform float fog_start    : hint_range(60.0, 1200.0) = 140.0;
 uniform float fog_density  : hint_range(0.0, 2.0)    = 1.1;
-uniform float z_far        = 795.0;
 
 varying float v_dist;
 

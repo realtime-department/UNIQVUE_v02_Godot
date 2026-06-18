@@ -1,19 +1,19 @@
 extends Node3D
-## Quantum — unregelmaessige, vernetzte Roehre (Port aus studio-v026.html
-## createQuantumModule). Drei Ebenen ueber EINEM Vertex-Satz auf dem Roehrenmantel:
-##   - Polygone (Dreiecke, PRIMITIVE_TRIANGLES)
-##   - Kanten   (Wireframe, PRIMITIVE_LINES, indiziert)
-##   - Punkte   (PRIMITIVE_POINTS)
-## Die Vernetzung (K-naechste-Nachbarn-Triangulation im (u,ang)-Raum) wird einmalig
-## in _ready() deterministisch erzeugt. Die radiale fBm-Verformung + Eigendrehung
-## passiert komplett in den Shadern (quantum*.gdshader). Bis zu MAX_CLONES Roehren-
-## Klone werden per MultiMesh dupliziert (Y-Versatz + Form-Variation je Klon).
+## Quantum — irregular, meshed tube (port from studio-v026.html
+## createQuantumModule). Three layers over ONE vertex set on the tube surface:
+##   - Polygons (triangles, PRIMITIVE_TRIANGLES)
+##   - Edges    (wireframe, PRIMITIVE_LINES, indexed)
+##   - Points   (PRIMITIVE_POINTS)
+## The mesh (K-nearest-neighbor triangulation in (u,ang)-space) is generated
+## once deterministically in _ready(). Radial fBm deformation + self-rotation
+## happens entirely in the shaders (quantum*.gdshader). Up to MAX_CLONES tube
+## clones are duplicated via MultiMesh (Y offset + shape variation per clone).
 ##
-## Hinweis: Die Web-Vorlage nutzt mulberry32(777); hier erzeugt ein fest geseedeter
-## RandomNumberGenerator dieselbe ART unregelmaessiger Verteilung (stabil ueber Laeufe,
-## funktional gleichwertig — die konkrete Punktwolke ist nicht bit-identisch).
+## Note: The web reference uses mulberry32(777); here a fixed-seeded
+## RandomNumberGenerator produces the same KIND of irregular distribution (stable
+## across runs, functionally equivalent — the exact point cloud is not bit-identical).
 
-@export_group("Bewegung")
+@export_group("Motion")
 @export_range(0.0, 1.0, 0.01) var speed: float = 0.08
 @export_range(0.0, 2.0, 0.02) var flow: float = 1.18
 @export_range(-0.5, 0.5, 0.01) var spin: float = 0.02
@@ -26,17 +26,17 @@ extends Node3D
 @export_range(0.2, 2.0, 0.05) var diameter: float = 0.85
 @export_range(0.0, 360.0, 1.0) var orient_deg: float = 85.0
 
-@export_group("Klone (Roehren)")
+@export_group("Clones (Tubes)")
 @export_range(1.0, 5.0, 0.25) var clones: float = 3.0
 @export_range(20.0, 160.0, 1.0) var clone_gap: float = 74.0
 @export_range(0.0, 1.0, 0.05) var clone_vary: float = 0.55
 
-@export_group("Sichtbare Ebenen")
+@export_group("Visible Layers")
 @export var show_poly: bool = true
 @export var show_edges: bool = true
 @export var show_points: bool = true
 
-@export_group("Polygone & Glanzlicht")
+@export_group("Polygons & Highlights")
 @export_range(0.0, 1.0, 0.02) var poly_coverage: float = 0.26
 @export_range(0.0, 0.6, 0.01) var poly_opacity: float = 0.16
 @export var light_auto: bool = true
@@ -44,16 +44,16 @@ extends Node3D
 @export_range(0.1, 1.0, 0.02) var light_width: float = 0.53
 @export_range(0.0, 2.0, 0.05) var glow: float = 1.45
 
-@export_group("Kanten & Punkte")
+@export_group("Edges & Points")
 @export_range(0.0, 1.0, 0.02) var edge_opacity: float = 0.50
 @export_range(0.0, 1.5, 0.02) var point_opacity: float = 1.18
 @export_range(1.0, 8.0, 0.2) var point_size: float = 5.0
 @export_range(0, 4, 1) var shape: int = 2
 
-@export_group("Tiefe")
+@export_group("Depth")
 @export_range(0.0, 2.0, 0.05) var depth_fog: float = 1.60
 
-@export_group("Kamera")
+@export_group("Camera")
 @export_range(-60.0, 60.0, 1.0) var cam_height: float = 0.0
 @export_range(60.0, 340.0, 2.0) var cam_dist: float = 150.0
 @export_range(-40.0, 40.0, 1.0) var cam_pitch: float = 0.0
@@ -76,13 +76,23 @@ var _su: PackedFloat32Array
 var _sa: PackedFloat32Array
 var _t: float = 0.0
 
+# Width factor (aspect/16:9): stretches the tube along its longitudinal axis (local
+# X of _tube, ~horizontal since orient_deg ~90), so it fills the width on wide/wall
+# resolutions. Applied as _tube.scale.x; Y/Z stay unchanged.
+var _wfac: float = 1.0
+
 var _poly_mat: ShaderMaterial
 var _edge_mat: ShaderMaterial
 var _point_mat: ShaderMaterial
 
 
 func _ready() -> void:
+	var stage := get_node_or_null("/root/BackgroundStage")
+	_wfac = stage.width_factor() if stage else 1.0
+	if stage:
+		stage.aspect_changed.connect(_on_aspect_changed)
 	_build_geometry()
+	_tube.scale.x = _wfac
 	_poly_mat = _poly.material_override as ShaderMaterial
 	_edge_mat = _edges.material_override as ShaderMaterial
 	_point_mat = _points.material_override as ShaderMaterial
@@ -90,13 +100,21 @@ func _ready() -> void:
 	_update_all()
 
 
+# Aspect change: only set the width factor as X scale of the tube.
+# _tube.rotation.z is set per frame separately -> scale is preserved.
+# Y/Z stay unchanged.
+func _on_aspect_changed(aspect: float) -> void:
+	_wfac = aspect / (16.0 / 9.0)
+	_tube.scale.x = _wfac
+
+
 func _process(delta: float) -> void:
-	_t += delta
+	_t += minf(delta, 0.05)
 	_update_camera()
 	_update_all()
 
 
-# --------------------------------------------------------------- Geometrie-Aufbau
+# --------------------------------------------------------------- Geometry Setup
 
 func _build_geometry() -> void:
 	var rng := RandomNumberGenerator.new()
@@ -109,7 +127,7 @@ func _build_geometry() -> void:
 		vu[i] = rng.randf()
 		va[i] = rng.randf() * TAU
 
-	# Nach u sortieren -> Nachbarschaft entlang der Roehre wird lokal.
+	# Sort by u -> neighborhood along the tube becomes local.
 	var order := range(NVERT)
 	order.sort_custom(func(a, b): return vu[a] < vu[b])
 	_su = PackedFloat32Array()
@@ -120,7 +138,7 @@ func _build_geometry() -> void:
 		_su[k] = vu[order[k]]
 		_sa[k] = va[order[k]]
 
-	# K-naechste-Nachbarn -> Dreiecke (mit Flaechen-/Kantenfiltern gegen Artefakte).
+	# K-nearest neighbors -> triangles (with face/edge filters against artifacts).
 	var tris := PackedInt32Array()
 	var tset := {}
 	for i in NVERT:
@@ -148,7 +166,7 @@ func _build_geometry() -> void:
 			tris.append(b)
 			tris.append(c)
 
-	# Eindeutige Kanten aus den Dreiecken.
+	# Unique edges from the triangles.
 	var edge_idx := PackedInt32Array()
 	var eset := {}
 	var tcount := tris.size()
@@ -162,20 +180,20 @@ func _build_geometry() -> void:
 		_add_edge(t2, t0, eset, edge_idx)
 		ti += 3
 
-	# Basis-Mantel-Positionen (unverformt) — Deformation erfolgt im Shader.
+	# Base surface positions (undeformed) — deformation happens in the shader.
 	var pos := PackedVector3Array()
 	pos.resize(NVERT)
 	for i in NVERT:
 		pos[i] = _vertex_pos(i)
 
-	# --- Punkte-Mesh (PRIMITIVE_POINTS) ---
+	# --- Points mesh (PRIMITIVE_POINTS) ---
 	var point_mesh := ArrayMesh.new()
 	var parr := []
 	parr.resize(Mesh.ARRAY_MAX)
 	parr[Mesh.ARRAY_VERTEX] = pos
 	point_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, parr)
 
-	# --- Kanten-Mesh (PRIMITIVE_LINES, indiziert) ---
+	# --- Edges mesh (PRIMITIVE_LINES, indexed) ---
 	var edge_mesh := ArrayMesh.new()
 	var earr := []
 	earr.resize(Mesh.ARRAY_MAX)
@@ -183,7 +201,7 @@ func _build_geometry() -> void:
 	earr[Mesh.ARRAY_INDEX] = edge_idx
 	edge_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, earr)
 
-	# --- Polygon-Mesh (nicht-indiziert, UV = (aFace, aCentU)) ---
+	# --- Polygon mesh (non-indexed, UV = (aFace, aCentU)) ---
 	var face_count := tris.size() / 3
 	var ppos := PackedVector3Array()
 	var puv := PackedVector2Array()
@@ -195,7 +213,7 @@ func _build_geometry() -> void:
 		var ic: int = tris[f * 3 + 2]
 		var cu: float = (_su[ia] + _su[ib] + _su[ic]) / 3.0
 		var hv: float = sin(float(f) * 12.9898 + 1.23) * 43758.5453
-		hv = hv - floor(hv)   # fract -> Pro-Face-Hash fuer Coverage
+		hv = hv - floor(hv)   # fract -> per-face hash for coverage
 		ppos[f * 3] = pos[ia]
 		ppos[f * 3 + 1] = pos[ib]
 		ppos[f * 3 + 2] = pos[ic]
@@ -221,7 +239,7 @@ func _setup_multimesh(mmi: MultiMeshInstance3D, mesh: Mesh) -> void:
 	mm.mesh = mesh
 	mm.instance_count = MAX_CLONES
 	mmi.multimesh = mm
-	# Grosszuegige AABB: Vertex-Deformation + Klon-Versatz sprengen die Basis-Box.
+	# Generous AABB: vertex deformation + clone offset exceed the base box.
 	mmi.custom_aabb = AABB(Vector3(-400.0, -560.0, -400.0), Vector3(800.0, 1120.0, 800.0))
 
 
@@ -271,7 +289,7 @@ func _vertex_pos(i: int) -> Vector3:
 	return Vector3((u - 0.5) * TUBE_LEN, cos(ang) * RAD, sin(ang) * RAD)
 
 
-# --------------------------------------------------------------- Laufzeit-Update
+# --------------------------------------------------------------- Runtime Update
 
 func _update_camera() -> void:
 	if _camera == null:
@@ -289,7 +307,7 @@ func _update_all() -> void:
 	if light_auto:
 		light_u = 0.5 + 0.5 * sin(_t * 0.15)
 
-	# Gemeinsame Deformations-/Licht-/Fog-Uniforms auf alle drei Materialien.
+	# Shared deformation/light/fog uniforms applied to all three materials.
 	for m in [_poly_mat, _edge_mat, _point_mat]:
 		m.set_shader_parameter("u_speed", speed)
 		m.set_shader_parameter("u_flow", flow)
@@ -314,7 +332,7 @@ func _update_all() -> void:
 	_tube.rotation.z = PI * 0.5 - deg_to_rad(orient_deg)
 	_poly.visible = show_poly
 	_edges.visible = show_edges
-	_points.visible = show_points
+	_points.visible = show_points and speed > 0.0
 
 	var count := clampf(clones, 0.0001, float(MAX_CLONES))
 	var mid := (count - 1.0) * 0.5

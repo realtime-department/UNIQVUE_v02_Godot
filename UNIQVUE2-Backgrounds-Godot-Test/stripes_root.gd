@@ -2,15 +2,15 @@ extends Node3D
 ## Stripes scene root — ported from studio-v005 createStripesModule()
 ## (studio-v005.html:877-970).
 ##
-## Fullscreen-Lamellen-Shader auf einem ColorRect (CanvasLayer), additiv ueber
-## dem Gradient-Sky (WorldEnvironment) — wie im Web: gradientPass + Stripes-Quad.
-## Die @exports hier sind die Tunables (von ParamStore als scene/* erfasst) und
-## werden je Frame in das ShaderMaterial gespiegelt (entspricht update() im HTML).
+## Fullscreen slat shader on a ColorRect (CanvasLayer), additive over
+## the Gradient-Sky (WorldEnvironment) — as in the web: gradientPass + Stripes-Quad.
+## The @exports here are the tunables (captured by ParamStore as scene/*) and
+## are mirrored to the ShaderMaterial each frame (equivalent to update() in HTML).
 ##
-## Farben kommen NICHT aus @exports: der Shader liest die globalen STYLE-Uniforms
-## fog_color/elem_a/elem_b direkt (uC1/uC2/uC3 im Web, studio-v005.html:940).
+## Colors do NOT come from @exports: the shader reads the global STYLE uniforms
+## fog_color/elem_a/elem_b directly (uC1/uC2/uC3 in the web, studio-v005.html:940).
 
-@export_group("Streifen")
+@export_group("Stripes")
 @export_range(0.0, 6.283, 0.001) var angle: float = 2.007
 @export_range(0.0, 2.0, 0.02) var speed: float = 0.4
 @export_range(6.0, 80.0, 1.0) var stripe_scale: float = 26.0
@@ -22,7 +22,7 @@ extends Node3D
 @export_range(0.0, 1.0, 0.02) var tone_var: float = 1.0
 @export_range(0.0, 1.0, 0.02) var sharp: float = 0.4
 
-@export_group("Darstellung")
+@export_group("Appearance")
 @export_range(0.3, 2.5, 0.05) var contrast: float = 1.1
 @export_range(0.0, 1.5, 0.05) var glow: float = 0.4
 @export_range(0.0, 1.5, 0.05) var opacity: float = 0.9

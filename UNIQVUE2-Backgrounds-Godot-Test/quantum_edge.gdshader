@@ -1,7 +1,7 @@
 shader_type spatial;
-// Quantum — KANTEN / Wireframe (Port aus studio-v026.html edgeVert/edgeFrag).
-// Gleiche radiale fBm-Verformung wie quantum.gdshader; v_centU = u (aus VERTEX.x),
-// kein Pro-Face-UV. Additiv.
+// Quantum — EDGES / Wireframe (port from studio-v026.html edgeVert/edgeFrag).
+// Same radial fBm deformation as quantum.gdshader; v_centU = u (from VERTEX.x),
+// no per-face UV. Additive.
 render_mode unshaded, depth_draw_never, blend_add, cull_disabled;
 
 global uniform vec4 fog_color : source_color;
@@ -65,8 +65,8 @@ float fbm(vec3 p) {
 	}
 	return a;
 }
-// Stage-Builtins (VERTEX/INSTANCE_CUSTOM) sind in Hilfsfunktionen NICHT verfuegbar
-// und werden als Parameter durchgereicht (phase = INSTANCE_CUSTOM.x). TIME ist global ok.
+// Stage builtins (VERTEX/INSTANCE_CUSTOM) are NOT available in helper functions
+// and are passed as parameters (phase = INSTANCE_CUSTOM.x). TIME is globally ok.
 float radialN(float u, float ang, float t, float phase) {
 	float ns = 0.018 / max(0.2, u_wavelength) * TUBE_LEN;
 	vec3 dir = vec3(0.0, cos(ang), sin(ang));

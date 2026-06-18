@@ -1,48 +1,52 @@
 shader_type spatial;
 render_mode unshaded, blend_add, depth_draw_never, depth_test_disabled, cull_disabled;
 
-// Lines / Speed-Streaks — 1:1-Port von studio-v005.html createLinesModule()
-// (Zeilen 786-852, vertexShader + fragmentShader).
+// Lines / Speed-Streaks — 1:1 port from studio-v005.html createLinesModule()
+// (lines 786-852, vertexShader + fragmentShader).
 //
-// Die HTML-Version nutzt InstancedBufferGeometry mit 8 Zufalls-Attributen pro
-// Instanz (aTrack..aCross), die einmalig per Math.random() gesetzt werden und
-// sich nie aendern. Hier werden dieselben 8 Werte deterministisch aus
-// INSTANCE_ID gehasht — kein CPU-Buffer noetig, MultiMesh-Transforms bleiben
-// ungenutzt (POSITION wird direkt im Clip-Space geschrieben, wie das
-// gl_Position der Ortho-Vorlage).
+// The HTML version uses InstancedBufferGeometry with 8 random attributes per
+// instance (aTrack..aCross), set once via Math.random() and never changed.
+// Here the same 8 values are derived deterministically from INSTANCE_ID via
+// hash — no CPU buffer needed, MultiMesh transforms stay unused
+// (POSITION is written directly to clip-space, like the
+// gl_Position of the ortho reference).
 //
-// Farben kommen global aus STYLE: uC2 = elem_a, uC3 = elem_b
-// (Fog ist im Web nur der Hintergrund -> hier uebernimmt das der Gradient-Sky).
+// Colors come globally from STYLE: uC2 = elem_a, uC3 = elem_b
+// (Fog in the web is just the background -> here the Gradient-Sky takes over).
 
 global uniform vec4 elem_a : source_color;
 global uniform vec4 elem_b : source_color;
 
-group_uniforms Linien;
-uniform float angle     : hint_range(0.0, 6.283, 0.001) = 2.007; // Winkel (Richtung), Dial 0..2PI
+group_uniforms Lines;
+uniform float angle     : hint_range(0.0, 6.283, 0.001) = 2.007; // Angle (direction), dial 0..2PI
 uniform float speed     : hint_range(0.0, 2.0, 0.02)    = 0.4;   // Tempo
 uniform float speed_var : hint_range(0.0, 1.0, 0.02)    = 1.0;   // Tempo-Varianz
-uniform float coverage  : hint_range(1.0, 4.0, 0.05)    = 1.6;   // Flaechenabdeckung
+uniform float coverage  : hint_range(1.0, 4.0, 0.05)    = 1.6;   // Area coverage
 group_uniforms;
 
-group_uniforms Form;
-uniform float len_scale   : hint_range(0.3, 2.5, 0.05) = 1.0;  // Laengen-Faktor
-uniform float len_spread  : hint_range(0.0, 1.5, 0.02) = 1.0;  // Laengen-Streuung
-uniform float width_scale : hint_range(0.3, 3.0, 0.05) = 1.0;  // Breiten-Faktor
-uniform float sharp       : hint_range(0.0, 1.0, 0.02) = 1.0;  // Kantenschaerfe (hart<->weich)
+group_uniforms Shape;
+uniform float len_scale   : hint_range(0.3, 2.5, 0.05) = 1.0;  // Length factor
+uniform float len_spread  : hint_range(0.0, 1.5, 0.02) = 1.0;  // Length spread
+uniform float width_scale : hint_range(0.3, 3.0, 0.05) = 1.0;  // Width factor
+uniform float sharp       : hint_range(0.0, 1.0, 0.02) = 1.0;  // Edge sharpness (hard<->soft)
 group_uniforms;
 
-group_uniforms Darstellung;
-uniform float contrast : hint_range(0.3, 2.5, 0.05) = 1.15; // Kontrast
-uniform float glow     : hint_range(0.0, 1.5, 0.05) = 0.3;  // Gluehen
-uniform float opacity  : hint_range(0.0, 1.5, 0.05) = 0.85; // Deckkraft
+group_uniforms Appearance;
+uniform float contrast : hint_range(0.3, 2.5, 0.05) = 1.15; // Contrast
+uniform float glow     : hint_range(0.0, 1.5, 0.05) = 0.3;  // Glow
+uniform float opacity  : hint_range(0.0, 1.5, 0.05) = 0.85; // Opacity
+group_uniforms;
+
+group_uniforms _Sync;
+uniform float aspect_ratio : hint_range(0.1, 5.0) = 1.777; // set by lines_root.gd each frame
 group_uniforms;
 
 varying vec2 v_local;
 varying float v_tone;
 varying float v_alpha_mul;
 
-// Integer-Hash (lowbias32) — praezisionssicher fuer alle 40k Instanz-IDs,
-// im Gegensatz zu fract(sin(...))-Hashes, die bei grossen IDs degenerieren.
+// Integer hash (lowbias32) — precision-safe for all 40k instance IDs,
+// unlike fract(sin(...))-hashes which degenerate at large IDs.
 float hash_inst(uint x) {
 	x ^= x >> 16u;
 	x *= 0x7feb352du;
@@ -53,9 +57,9 @@ float hash_inst(uint x) {
 }
 
 void vertex() {
-	// 8 Zufallswerte pro Instanz, identische Verteilungen wie die JS-Befuellung
-	// (studio-v005.html:773-777). aSeed/aCross werden im HTML-Shader deklariert,
-	// aber nie benutzt (crossT = aTrack) — der Vollstaendigkeit halber trotzdem da.
+	// 8 random values per instance, identical distributions to the JS seeding
+	// (studio-v005.html:773-777). aSeed/aCross are declared in the HTML shader
+	// but never used (crossT = aTrack) — kept here for completeness.
 	uint id = uint(INSTANCE_ID) * 8u;
 	float a_track = hash_inst(id + 0u);
 	float a_phase = hash_inst(id + 1u);
@@ -66,9 +70,9 @@ void vertex() {
 	float a_seed  = hash_inst(id + 6u);                 // im HTML ungenutzt
 	float a_cross = (hash_inst(id + 7u) - 0.5) * 2.0;   // im HTML ungenutzt
 
-	float aspect = VIEWPORT_SIZE.x / VIEWPORT_SIZE.y;   // entspricht uAspect = W/H
+	float aspect = aspect_ratio;   // set by lines_root.gd; VIEWPORT_SIZE invalid in spatial vertex()
 
-	// Laengenspreizung: lenSpread streut die Laengen weiter (kurz..lang).
+	// Length spread: lenSpread distributes lengths further (short..long).
 	float lbase = mix(0.06, 0.40, a_len);
 	float len_s = mix(0.23, lbase, clamp(len_spread, 0.0, 1.5)) * len_scale;
 	if (len_spread > 1.0) {
@@ -77,15 +81,15 @@ void vertex() {
 	float wid_s = mix(0.003, 0.014, a_width) * width_scale;
 	float diag = sqrt(aspect * aspect + 1.0) * 1.15;
 	float span = diag * coverage;
-	// Geschwindigkeitsvarianz: bei 0 alle gleich schnell, bei 1 volle Spreizung.
+	// Speed variance: at 0 all same speed, at 1 full spread.
 	float spd = mix(1.0, a_speed, speed_var);
-	// TIME statt CPU-uTime (HTML wrappt bei 600 s, Godot-Default bei 3600 s —
-	// fract() bleibt in beiden Faellen praezise genug).
+	// TIME instead of CPU-uTime (HTML wraps at 600 s, Godot default at 3600 s —
+	// fract() stays precise enough in both cases).
 	float run = fract(a_phase + TIME * speed * 1.4 * spd * 0.15);
 	float run_y = (run - 0.5) * 2.0 * span;
 	float track_x = (a_track - 0.5) * 2.0 * span;
 
-	// QuadMesh ist 2x2 -> halbieren auf [-0.5..0.5], wie THREE.PlaneGeometry(1,1).
+	// QuadMesh is 2x2 -> halve to [-0.5..0.5], like THREE.PlaneGeometry(1,1).
 	vec2 q = VERTEX.xy * 0.5;
 	v_local = q;
 	vec2 local = vec2(q.x * wid_s, q.y * len_s);
@@ -99,8 +103,8 @@ void vertex() {
 	float end_fade = smoothstep(0.0, 0.16, run) * smoothstep(1.0, 0.84, run);
 	v_alpha_mul = end_fade;
 
-	// Direkter Clip-Space-Output (Godot-NDC ist y-up wie WebGL); z=0.5 liegt
-	// sicher zwischen Near/Far — Tiefe ist egal (kein Depth-Test/-Write).
+	// Direct clip-space output (Godot NDC is y-up like WebGL); z=0.5 lies
+	// safely between Near/Far — depth doesn't matter (no depth test/write).
 	POSITION = vec4(rot, 0.5, 1.0);
 }
 

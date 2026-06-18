@@ -11,24 +11,26 @@ extends Node3D
 ## Colors: horizon glow reads elem_b, ground tint reads fog_color/elem_a — all
 ## global STYLE uniforms, NO @export Color.
 
-@export_group("Welt & Flug")
+@export_group("World & Flight")
 @export_range(0.0, 2.0, 0.02) var speed: float = 0.7
-@export_range(24.0, 70.0, 1.0) var cam_fov: float = 38.0
 
 @export_group("Material")
 @export_range(0.4, 3.0, 0.05) var exposure: float = 1.4
 @export_range(0.3, 2.0, 0.05) var light_gain: float = 1.0
 @export_range(0.0, 1.0, 0.02) var tint_mix: float = 0.5
 
-@export_group("Elemente")
+@export_group("Elements")
 @export_range(0.0, 1.5, 0.02) var ground: float = 0.78
 @export_range(0.0, 1.5, 0.02) var grid: float = 0.85
 @export_range(0.0, 1.0, 0.02) var particles: float = 1.0
 @export_range(1.0, 8.0, 0.1)  var particle_size: float = 2.8
 
-@export_group("Tiefe & Fog")
+@export_group("Depth & Fog")
 @export_range(1.0, 5.0, 0.1) var fade_start: float = 3.2
 @export_range(3.0, 9.0, 0.1) var fade_end: float = 6.6
+
+@export_group("Camera")
+@export_range(24.0, 70.0, 1.0) var cam_fov: float = 38.0
 
 const NBLOCKS  := 8
 const COLS     := 9
@@ -43,6 +45,11 @@ const CAM_Y    := 150.0
 const PCOUNT   := 800
 
 var _travel: float = 0.0
+
+# Width factor (aspect/16:9): stretches the horizontal (X) extent of
+# block columns, sky panels and particles so the corridor fills the width
+# on wide/wall resolutions instead of clustering in the center. Y/Z stay unchanged.
+var _wfac: float = 1.0
 
 # Geometry bounds (computed from JSON)
 var _tile_d: float = 1243.0
@@ -71,7 +78,9 @@ var _px: PackedFloat32Array
 var _py: PackedFloat32Array
 var _pz: PackedFloat32Array
 var _pspd: PackedFloat32Array
-var _p_mesh: ImmediateMesh
+var _p_mesh: ArrayMesh
+var _pp: PackedVector3Array   # point positions (persistent, filled each frame)
+var _pc: PackedColorArray     # point colours (persistent, filled each frame)
 
 @onready var _camera: Camera3D             = $Camera3D
 @onready var _struct:  MultiMeshInstance3D = $StructMesh
@@ -81,6 +90,10 @@ var _p_mesh: ImmediateMesh
 
 
 func _ready() -> void:
+	var stage := get_node_or_null("/root/BackgroundStage")
+	_wfac = stage.width_factor() if stage else 1.0
+	if stage:
+		stage.aspect_changed.connect(_on_aspect_changed)
 	_load_geometry()
 	_build_block_transforms()
 	_build_sky_panels()
@@ -177,7 +190,8 @@ func _build_block_transforms() -> void:
 	# 18 base transforms per block (floor + ceiling for each of 9 columns)
 	_block_base.resize(COLS * 2)
 	for c in range(COLS):
-		var ox := (float(c) - float(COLS - 1) * 0.5) * _step_x - _cx
+		# Stretch X column offset by _wfac -> corridor becomes wider.
+		var ox := ((float(c) - float(COLS - 1) * 0.5) * _step_x - _cx) * _wfac
 
 		# Floor mesh: small Y jitter, small Y rotation
 		var ry_f := (_rand(float(c) * 13.1) * 2.0 - 1.0) * 0.04
@@ -186,7 +200,7 @@ func _build_block_transforms() -> void:
 		_block_base[c] = Transform3D(bf, Vector3(ox, dy_f, -_cz))
 
 		# Ceiling mesh: PI rotation around Z (flipped), small Y rotation, small X offset
-		var ox2  := ox + (_rand(float(c)) * 2.0 - 1.0) * 30.0
+		var ox2  := ox + (_rand(float(c)) * 2.0 - 1.0) * 30.0 * _wfac
 		var ry_c := (_rand(float(c) * 3.3) * 2.0 - 1.0) * 0.06
 		# Rotate PI around Z → flip upside-down, then apply small Y rotation
 		var bc   := Basis(Vector3.FORWARD, PI) * Basis(Vector3.UP, ry_c)
@@ -217,8 +231,9 @@ func _build_sky_panels() -> void:
 			var bright := 0.28 + pow(_rand(float(idx) * 2.7), 1.5) * 0.5
 			var w := 150.0 + _rand(float(idx) * 1.9) * 190.0
 			var d := 150.0 + _rand(float(idx) * 2.3) * 200.0
-			var px := (float(col) - float(SKY_COLS - 1) * 0.5) * 340.0 \
-			          + (_rand(float(idx)) * 2.0 - 1.0) * 110.0
+			# Stretch sky panel X column spacing by _wfac (panel size stays unchanged).
+			var px := ((float(col) - float(SKY_COLS - 1) * 0.5) * 340.0 \
+			          + (_rand(float(idx)) * 2.0 - 1.0) * 110.0) * _wfac
 			var py := PANEL_Y - _rand(float(idx) * 1.7) * 40.0
 			# Scale in XZ (PlaneMesh lies in XZ)
 			var bas := Basis.IDENTITY.scaled(Vector3(w, 1.0, d))
@@ -233,17 +248,34 @@ func _init_particles() -> void:
 	_pz   = PackedFloat32Array(); _pz.resize(PCOUNT)
 	_pspd = PackedFloat32Array(); _pspd.resize(PCOUNT)
 	for i in range(PCOUNT):
-		_px[i]   = (_rand(float(i) * 1.1) * 2.0 - 1.0) * 1800.0
+		_px[i]   = (_rand(float(i) * 1.1) * 2.0 - 1.0) * 1800.0 * _wfac
 		_py[i]   = 10.0 + _rand(float(i) * 2.2) * 420.0
 		_pz[i]   = 400.0 - _rand(float(i) * 3.3) * 6500.0
 		_pspd[i] = 60.0 + _rand(float(i) * 4.4) * 120.0
-	_p_mesh       = ImmediateMesh.new()
+	_pp = PackedVector3Array(); _pp.resize(PCOUNT)
+	_pc = PackedColorArray();   _pc.resize(PCOUNT)
+	_p_mesh       = ArrayMesh.new()
 	_part_node.mesh = _p_mesh
+
+
+# Aspect change: scale X extent proportionally to the new width factor.
+# Recalculate existing particle X with nf/_wfac (no jump), rebuild cached block
+# and sky base transforms from _wfac; Y/Z stay unchanged.
+func _on_aspect_changed(aspect: float) -> void:
+	var nf := aspect / (16.0 / 9.0)
+	if absf(nf - _wfac) < 0.0001:
+		return
+	var k := nf / _wfac
+	for i in range(PCOUNT):
+		_px[i] *= k
+	_wfac = nf
+	_build_block_transforms()
+	_build_sky_panels()
 
 
 func _process(delta: float) -> void:
 	var dt := minf(delta, 0.05)
-	_travel += speed * 100.0 * dt
+	_travel = fmod(_travel + speed * 100.0 * dt, float(NBLOCKS) * maxf(_seg_len, 1.0))
 	_update_blocks()
 	_update_sky_panels()
 	_update_particles(dt)
@@ -283,20 +315,31 @@ func _update_sky_panels() -> void:
 
 
 func _update_particles(dt: float) -> void:
-	_p_mesh.clear_surfaces()
+	if speed <= 0.0:
+		_p_mesh.clear_surfaces()
+		return
 	var n := mini(PCOUNT, int(float(PCOUNT) * particles))
 	if n <= 0:
+		_p_mesh.clear_surfaces()
 		return
-	_p_mesh.surface_begin(Mesh.PRIMITIVE_POINTS)
+	# Fill persistent buffers, then upload once via add_surface_from_arrays —
+	# avoids PCOUNT per-vertex ImmediateMesh calls every frame (see plexus_sim._upload_meshes).
 	for i in range(n):
-		_pz[i] += _pspd[i] * dt
+		_pz[i] += _pspd[i] * speed * dt
 		if _pz[i] > CAM_Z + 200.0:
-			_px[i] = (_rand(float(i) * 1.1 + _travel * 0.013) * 2.0 - 1.0) * 1800.0
+			_px[i] = (_rand(float(i) * 1.1 + _travel * 0.013) * 2.0 - 1.0) * 1800.0 * _wfac
 			_py[i] = 10.0 + _rand(float(i) * 2.2 + _travel * 0.011) * 420.0
 			_pz[i] = -6500.0
-		_p_mesh.surface_set_color(Color(0.0, 0.0, 0.0, 1.0))
-		_p_mesh.surface_add_vertex(Vector3(_px[i], _py[i], _pz[i]))
-	_p_mesh.surface_end()
+		# Vertex colour is intentionally black: structure_part shader colours from
+		# elem_b, this is unused — kept as-is to preserve behaviour.
+		_pp[i] = Vector3(_px[i], _py[i], _pz[i])
+		_pc[i] = Color(0.0, 0.0, 0.0, 1.0)
+	_p_mesh.clear_surfaces()
+	var arrs: Array = []
+	arrs.resize(Mesh.ARRAY_MAX)
+	arrs[Mesh.ARRAY_VERTEX] = _pp.slice(0, n)
+	arrs[Mesh.ARRAY_COLOR]  = _pc.slice(0, n)
+	_p_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, arrs)
 
 
 func _update_camera() -> void:
