@@ -70,6 +70,10 @@ var state := {
 var anim_center := 0.0
 var ac_vel := 0.0
 
+# Klick-Ziele fuer Grid/Gallery: [{idx:int, rect:Rect2}] in Viewport-Pixeln. Pro Frame
+# aus der Kamera-Projektion neu berechnet; vom Overlay fuer Picking gelesen.
+var pick_targets: Array = []
+
 # Slot-Aspect. Im Standalone aus der SubViewport-Groesse. Default 16:9.
 var _aspect := 16.0 / 9.0
 
@@ -370,6 +374,7 @@ func _process(delta: float) -> void:
 
 func _layout() -> void:
 	_apply_aspect_from_viewport()
+	pick_targets.clear()
 	match state.mode:
 		"gallery":
 			_layout_gallery()
@@ -444,15 +449,186 @@ func _layout_slidedeck() -> void:
 			_place_deck(cur, 0, 0, tt, 1, 0.1, 0)
 
 
-# --- Stubs fuer Folgestufen ---
+# --- Helpers fuer die uebrigen Modi ---
+# Karte mit StandardMaterial3D (bildgenaues Seitenverhaeltnis), Hoehe in Welt-Einheiten,
+# Breite aus dem Bildaspekt. Opacity ueber albedo-Alpha (Material ist ALPHA-transparent).
+func _place_card(idx: int, pos: Vector3, rot: Vector3, height: float, opacity: float) -> void:
+	if idx < 0 or idx >= slide_meshes.size():
+		return
+	var m: MeshInstance3D = slide_meshes[idx]
+	m.visible = true
+	var ia: float = loader.slides[idx].img_aspect
+	m.position = pos
+	m.rotation = rot
+	m.scale = Vector3(height * ia, height, 1.0)
+	var mat: StandardMaterial3D = slide_std_mats[idx]
+	m.material_override = mat
+	mat.albedo_color = Color(1, 1, 1, clampf(opacity, 0.0, 1.0))
+
+
+# Klick-Ziel (Viewport-Pixel-Rect) eines achsenparallelen Quads ueber die Kamera-Projektion.
+func _push_pick(idx: int, pos: Vector3, w: float, h: float) -> void:
+	var hw := w * 0.5
+	var hh := h * 0.5
+	var a := camera.unproject_position(Vector3(pos.x - hw, pos.y + hh, pos.z))
+	var b := camera.unproject_position(Vector3(pos.x + hw, pos.y - hh, pos.z))
+	pick_targets.append({"idx": idx, "rect": Rect2(a, b - a).abs()})
+
+
+# --- Interaktion (vom Overlay aufgerufen) ---
+# Grid: MB1 halten -> ausgewaehltes Bild in den Slot zoomen; loslassen -> zurueck.
+func grid_press(idx: int) -> void:
+	if idx < 0 or idx >= nv():
+		return
+	state.index = idx
+	state.from_index = idx
+	state.t = 1.0
+	state.grid_zoom = true
+
+
+func grid_release() -> void:
+	state.grid_zoom = false
+
+
+# Grosses Hauptbild der Gallery ueber eines der beiden MainPair-Quads (Crossfade).
+func _place_main(slot: int, tex_idx: int, pos: Vector3, height: float, opacity: float) -> void:
+	if slot < 0 or slot >= main_meshes.size() or tex_idx < 0 or tex_idx >= loader.count():
+		return
+	var m: MeshInstance3D = main_meshes[slot]
+	m.visible = true
+	var ia: float = loader.slides[tex_idx].img_aspect
+	m.position = pos
+	m.rotation = Vector3.ZERO
+	m.scale = Vector3(height * ia, height, 1.0)
+	var mat: ShaderMaterial = main_shader_mats[slot]
+	m.material_override = mat
+	mat.set_shader_parameter("u_tex", loader.slides[tex_idx].tex)
+	mat.set_shader_parameter("u_img_aspect", ia)
+	mat.set_shader_parameter("u_quad_aspect", ia)
+	mat.set_shader_parameter("u_fit", 0.0)
+	mat.set_shader_parameter("u_opacity", clampf(opacity, 0.0, 1.0))
+	mat.set_shader_parameter("u_blur", 0.0)
+
+
+# --- Gallery (ortho): grosses Hauptbild + Thumbnail-Streifen unten ---
 func _layout_gallery() -> void:
-	_layout_slidedeck()  # Stufe 5
+	_hide_all()
+	var n := nv()
+	if loader.count() == 0 or n <= 0:
+		return
+	var tt := _ease_io(state.t)
+	var cur: int = state.index
+	var prv: int = state.from_index
+	var moving: bool = state.t < 1.0 and cur != prv
 
+	var main_h := 1.42
+	var main_y := 0.26
+	if moving:
+		_place_main(0, prv, Vector3(0, main_y, 0.0), main_h, 1.0 - tt)
+		_place_main(1, cur, Vector3(0, main_y, 0.1), main_h, tt)
+	else:
+		_place_main(0, cur, Vector3(0, main_y, 0.1), main_h, 1.0)
+
+	# Thumbnail-Streifen unten, bildgenau, aktuelles groesser + heller.
+	var th := 0.34
+	var gap := 0.07
+	var y := -0.82
+	var total := 0.0
+	var ws: Array = []
+	for i in range(n):
+		var w: float = th * float(loader.slides[i].img_aspect)
+		ws.append(w)
+		total += w
+	total += gap * float(maxi(0, n - 1))
+	var x := -total / 2.0
+	for i in range(n):
+		var w: float = ws[i]
+		var sel: bool = i == cur
+		var h := th * (1.18 if sel else 1.0)
+		var cx := x + w / 2.0
+		_place_card(i, Vector3(cx, y, 0.2 if sel else 0.05), Vector3.ZERO, h, 1.0 if sel else 0.66)
+		_push_pick(i, Vector3(cx, y, 0.0), h * float(loader.slides[i].img_aspect), h)
+		x += w + gap
+
+
+# --- Grid (ortho): gleichmaessiges Raster, aktuelles hervorgehoben ---
 func _layout_grid() -> void:
-	_layout_slidedeck()  # Stufe 4
+	_hide_all()
+	var n := nv()
+	if loader.count() == 0 or n <= 0:
+		return
+	var cols := int(ceil(sqrt(float(n))))
+	cols = maxi(1, cols)
+	var rows := int(ceil(float(n) / float(cols)))
+	var vw := 2.0 * _aspect
+	var vh := 2.0
+	var pad := 0.05
+	var cellw := (vw - pad * float(cols + 1)) / float(cols)
+	var cellh := (vh - pad * float(rows + 1)) / float(rows)
+	var z: float = state.grid_zoom_t  # 0..1 Fokus-Zoom (optional)
+	for i in range(n):
+		var c := i % cols
+		var r := i / cols
+		var cx := -vw / 2.0 + pad + cellw * (float(c) + 0.5) + pad * float(c)
+		var cy := vh / 2.0 - pad - cellh * (float(r) + 0.5) - pad * float(r)
+		var ia: float = loader.slides[i].img_aspect
+		var ch := minf(cellh, cellw / ia)
+		var op := 1.0
+		var sel: bool = i == state.index
+		if z > 0.001:
+			if sel:
+				# Fit the whole image into the slot (keep aspect).
+				var fit_h := minf(vh, vw / ia)
+				cx = lerpf(cx, 0.0, z)
+				cy = lerpf(cy, 0.0, z)
+				ch = lerpf(ch, fit_h, z)
+			else:
+				op = 1.0 - z
+		elif sel:
+			ch *= 1.06
+		_place_card(i, Vector3(cx, cy, 0.1 if sel else 0.0), Vector3.ZERO, ch, op)
+		_push_pick(i, Vector3(cx, cy, 0.0), ch * ia, ch)
 
+
+# --- Coverflow (persp): zentrale Karte frontal, Nachbarn nach innen gedreht ---
 func _layout_coverflow() -> void:
-	_layout_slidedeck()  # Stufe 6
+	_hide_all()
+	var n := nv()
+	if loader.count() == 0 or n <= 0:
+		return
+	var spacing := 1.02
+	var depth := 0.62
+	var maxang := deg_to_rad(58.0)
+	var card_h := 1.5
+	for i in range(n):
+		var off := float(i) - anim_center
+		if absf(off) > 3.3:
+			continue
+		var clamped := clampf(off, -1.0, 1.0)
+		var x := off * spacing
+		var zz := -absf(off) * depth
+		var ry := -clamped * maxang
+		if absf(off) > 1.0:
+			ry = -signf(off) * maxang
+		var op := clampf(1.25 - absf(off) * 0.34, 0.0, 1.0)
+		var center_amt := maxf(0.0, 1.0 - absf(off))
+		var hh := card_h * (1.0 + 0.14 * center_amt)
+		_place_card(i, Vector3(x, 0, zz + 0.25 * center_amt), Vector3(0, ry, 0), hh, op)
 
+
+# --- Carousel (persp): Ring aus Karten, vorderste frontal ---
 func _layout_carousel() -> void:
-	_layout_slidedeck()  # Stufe 7
+	_hide_all()
+	var n := nv()
+	if loader.count() == 0 or n <= 0:
+		return
+	var radius := 2.3
+	var card_h := 1.4
+	for i in range(n):
+		var off := float(i) - anim_center
+		var ang := off / float(maxi(1, n)) * TAU
+		var x := sin(ang) * radius
+		var zz := cos(ang) * radius - radius   # vorne (ang=0) bei z=0, hinten ~ -2r
+		var ry := -ang
+		var op := clampf((zz / radius) + 1.05, 0.12, 1.0)
+		_place_card(i, Vector3(x, 0, zz), Vector3(0, ry, 0), card_h, op)

@@ -36,7 +36,12 @@ func _process(_dt: float) -> void:
 	queue_redraw()
 
 
-func _is_nav_mode() -> bool:
+func _arrows_mode() -> bool:
+	var m: String = mod.state.mode
+	return m == "slidedeck" or m == "coverflow" or m == "carousel" or m == "gallery"
+
+
+func _pag_mode() -> bool:
 	var m: String = mod.state.mode
 	return m == "slidedeck" or m == "coverflow" or m == "carousel"
 
@@ -44,8 +49,8 @@ func _is_nav_mode() -> bool:
 func _layout() -> void:
 	var w := size.x
 	var h := size.y
-	_nav_visible = _is_nav_mode() and mod.state.show_nav
-	_pag_visible = _is_nav_mode() and mod.state.show_pagination
+	_nav_visible = _arrows_mode() and mod.state.show_nav
+	_pag_visible = _pag_mode() and mod.state.show_pagination
 	_vertical = mod.state.mode == "slidedeck" and mod.state.transition == "swipeV"
 
 	var mid_y := h / 2.0
@@ -128,20 +133,49 @@ func _draw_arrow(center: Vector2, dir: int, vertical: bool) -> void:
 
 
 func _gui_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		var p: Vector2 = event.position
-		if _nav_visible:
-			if p.distance_to(_arrow_l) < 24.0:
-				mod.prev()
+	if not (event is InputEventMouseButton) or event.button_index != MOUSE_BUTTON_LEFT:
+		return
+	var mode: String = mod.state.mode
+
+	if not event.pressed:
+		# Release: grid hold-to-fit returns to the grid.
+		if mode == "grid":
+			mod.grid_release()
+			accept_event()
+		return
+
+	var p: Vector2 = event.position
+	# Arrows / pagination first.
+	if _nav_visible:
+		if p.distance_to(_arrow_l) < 24.0:
+			mod.prev()
+			accept_event()
+			return
+		if p.distance_to(_arrow_r) < _arrow_r_hit:
+			mod.next()
+			accept_event()
+			return
+	if _pag_visible:
+		for d in _dot_hits:
+			if p.distance_to(d.pos) < d.r + 4.0:
+				mod.go_to(d.i)
 				accept_event()
 				return
-			if p.distance_to(_arrow_r) < _arrow_r_hit:
-				mod.next()
-				accept_event()
-				return
-		if _pag_visible:
-			for d in _dot_hits:
-				if p.distance_to(d.pos) < d.r + 4.0:
-					mod.go_to(d.i)
-					accept_event()
-					return
+
+	# Grid / Gallery: pick a slide by its projected rect.
+	if mode == "grid" or mode == "gallery":
+		var idx := _pick_at(p)
+		if idx >= 0:
+			if mode == "grid":
+				mod.grid_press(idx)   # hold to fit into the slot
+			else:
+				mod.go_to(idx)        # gallery: switch main image
+			accept_event()
+
+
+func _pick_at(p: Vector2) -> int:
+	var targets: Array = mod.pick_targets
+	for i in range(targets.size() - 1, -1, -1):
+		if (targets[i].rect as Rect2).has_point(p):
+			return int(targets[i].idx)
+	return -1
