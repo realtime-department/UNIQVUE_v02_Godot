@@ -1,491 +1,490 @@
-# UNIQVUE2 v05 — Studio-Parität für das Godot-Projekt
+# UNIQVUE2 v05 — Studio Parity for the Godot Project
 
-**Quelle:** `T:\Godot_BGs\studio-v005.html` (Three.js, ein File, 2107 Zeilen)
-**Ziel:** Die fehlende Logik & Features des Web-Studios in das Godot-Projekt
-(`UNIQVUE2-Backgrounds-Godot-Test`) übertragen — adaptiert an Godots Stärken,
-nicht 1:1 die RT-Pipeline nachgebaut.
+**Source:** `T:\Godot_BGs\studio-v005.html` (Three.js, single file, 2107 lines)
+**Goal:** Port the missing logic & features of the web studio into the Godot project
+(`UNIQVUE2-Backgrounds-Godot-Test`) — adapted to Godot's strengths,
+not a 1:1 rebuild of the RT pipeline.
 
-**Stand:** S0–S5 implementiert (siehe §4 / §8). S6 (content, 5 weitere Module) offen.
+**Status:** S0–S5 implemented (see §4 / §8). S6 (content, 5 remaining modules) open.
 
-Alle Behauptungen unten sind gegen den Quellcode geprüft; Web-Referenzen als
-`studio-v005.html:Zeile`, Godot-Referenzen als `datei.gd:Zeile`.
+All claims below are verified against the source code; web references as
+`studio-v005.html:line`, Godot references as `file.gd:line`.
 
 ---
 
-## 1. Was das Web-Studio ist (Architektur)
+## 1. What the Web Studio Is (Architecture)
 
-Ein gekapseltes Modul-System mit zentraler Farb-/Post-/Sequencer-Schicht. Die
-Selbstbeschreibung steht in `studio-v005.html:147-158`:
+A self-contained module system with a central color/post/sequencer layer. The
+self-description is at `studio-v005.html:147-158`:
 
-> Jedes Setup ist ein gekapseltes Modul mit eigener Scene+Camera.
-> Schnittstelle: `{ id, name, schema, build(), update(dt,p), render(rt), dispose() }`
+> Each setup is a self-contained module with its own Scene+Camera.
+> Interface: `{ id, name, schema, build(), update(dt,p), render(rt), dispose() }`
 
-### 1.1 Sieben Module (Registry `studio-v005.html:1564-1573`)
+### 1.1 Seven Modules (Registry `studio-v005.html:1564-1573`)
 
-| id | Name | Technik | Godot-Pendant? |
-|----|------|---------|----------------|
-| `tunnel` | Tunnel / Streaks | LineSegments + Points-Köpfe, additiv | ✅ `tunnel_wave.tscn` |
-| `wave` | Particle Wave | Punkt-Grid + Wireframe + Bildraum-Spiegelung | ✅ `particle_wave.tscn` |
-| `plexus` | Plexus | vernetzte Punkte/Links | ❌ fehlt |
-| `lines` | Lines | diagonales Streak-Feld (2D-Shader) | ❌ fehlt |
-| `stripes` | Stripes | Lamellen-Streifenfeld (2D-Shader) | ❌ fehlt |
-| `cubic` | Cubic | instanzierter Würfel-Tunnel | ❌ fehlt |
-| `structure` | Structure | Architektur-Flug mit Lightmaps/Texturen | ❌ fehlt |
+| id | Name | Technique | Godot equivalent? |
+|----|------|-----------|-------------------|
+| `tunnel` | Tunnel / Streaks | LineSegments + Points heads, additive | ✅ `tunnel_wave.tscn` |
+| `wave` | Particle Wave | Point-grid + Wireframe + image-space reflection | ✅ `particle_wave.tscn` |
+| `plexus` | Plexus | networked points/links | ❌ missing |
+| `lines` | Lines | diagonal streak field (2D shader) | ❌ missing |
+| `stripes` | Stripes | louvre stripe field (2D shader) | ❌ missing |
+| `cubic` | Cubic | instanced cube tunnel | ❌ missing |
+| `structure` | Structure | architecture fly-through with lightmaps/textures | ❌ missing |
 
-Jedes Modul liefert ein `schema` (`studio-v005.html:394-417` für tunnel) — Gruppen
-aus Items mit `{k,label,min,max,step,dec}`, plus Spezialtypen `dial:true`
-(Winkelrad), `toggle:true` (An/Aus) und `shape:'shape'` (Form-Auswahl Dot/Ring/
+Each module provides a `schema` (`studio-v005.html:394-417` for tunnel) — groups
+of items with `{k,label,min,max,step,dec}`, plus special types `dial:true`
+(angle wheel), `toggle:true` (on/off) and `shape:'shape'` (shape picker Dot/Ring/
 Square/Star/Cross, `studio-v005.html:1721`).
 
-### 1.2 Zentrales STYLE-Farbsystem (`studio-v005.html:230-260`)
+### 1.2 Central STYLE Color System (`studio-v005.html:230-260`)
 
-**Global, background-übergreifend.** Eine Palette gilt für ALLE Module:
+**Global, shared across all backgrounds.** One palette applies to ALL modules:
 
-- 5-Stop-Vertikal-Gradient: `zenith, skyMid, horizon, groundMid, ground`
-- `fog` (Depth-Fog) + 2 Element-Tints `elemA` (Tal/fern/Basis), `elemB` (Kamm/nah/Glanz)
+- 5-stop vertical gradient: `zenith, skyMid, horizon, groundMid, ground`
+- `fog` (depth fog) + 2 element tints `elemA` (valley/far/base), `elemB` (crest/near/highlight)
 
-Ein `gradientPass` (`studio-v005.html:245-260`) rendert den 5-Stop-Verlauf als
-Hintergrund VOR dem Modul; die Module zeichnen additiv darüber und beziehen ihre
-Farben aus STYLE statt aus lokalem c1/c2/c3 (z.B. `studio-v005.html:356`,
-`studio-v005.html:501`: `U.uC1.value.copy(_SC.fog)` usw.).
+A `gradientPass` (`studio-v005.html:245-260`) renders the 5-stop gradient as
+background BEFORE the module; modules draw additively on top and take their
+colors from STYLE instead of local c1/c2/c3 (e.g. `studio-v005.html:356`,
+`studio-v005.html:501`: `U.uC1.value.copy(_SC.fog)` etc.).
 
-### 1.3 Globale Post-Pipeline (`studio-v005.html:205-275`, Loop `2090-2099`)
+### 1.3 Global Post Pipeline (`studio-v005.html:205-275`, Loop `2090-2099`)
 
-Über das **komponierte** Bild:
-`bright (Threshold) → 2× separabler Gauss-Blur (4 Pässe, zwei Radien) →
-tonemap (ACES + Grain + Vignette)`. Geregelt über `GLOBAL = {bloom, thresh,
+Over the **composited** image:
+`bright (Threshold) → 2× separable Gauss-blur (4 passes, two radii) →
+tonemap (ACES + Grain + Vignette)`. Controlled via `GLOBAL = {bloom, thresh,
 vignette, grain}` (`studio-v005.html:220`).
 
-### 1.4 Transition-Pass (`studio-v005.html:179-203`)
+### 1.4 Transition Pass (`studio-v005.html:179-203`)
 
-Kombiniert rtA+rtB. Zwei Modi:
+Combines rtA+rtB. Two modes:
 - `uMode 0` = Crossfade
-- `uMode 1` = Z-Push (B wächst aus der Tiefe, radiale Front + heller Saum)
+- `uMode 1` = Z-Push (B grows from depth, radial front + bright edge)
 
-### 1.5 State-/Sequencer-System „BgCore" (`studio-v005.html:1575-1693`)
+### 1.5 State/Sequencer System "BgCore" (`studio-v005.html:1575-1693`)
 
-Das Herzstück, das in Godot komplett fehlt:
+The core piece that is completely missing in Godot:
 
-- **Ein Root-State** hält Vollwerte über **3 Zonen**: `gradient` (STYLE), `module`
+- **One Root State** holds full values across **3 zones**: `gradient` (STYLE), `module`
   (`{moduleId, params}`), `post` (GLOBAL).
-- **`states[]`** sind **Deltas** (Patches) gegen Root. Fehlt eine Zone im Patch →
-  erbt Root. Root-Änderung propagiert in alle erbenden States (zentrale Steuerung,
+- **`states[]`** are **Deltas** (patches) against Root. If a zone is missing from the patch →
+  inherits Root. Root changes propagate to all inheriting states (central control,
   `studio-v005.html:1586-1589`).
-- Operationen: `resolve(root,state)`, `diff(root,full)`, `interpolate(A,B,t)`,
+- Operations: `resolve(root,state)`, `diff(root,full)`, `interpolate(A,B,t)`,
   `summarize` (`studio-v005.html:1614-1692`).
-- **Playback** (`studio-v005.html:2051-2071`): Hold-Timer pro State → Auto-Advance →
-  `interpolate` über alle 3 Zonen. Gleiches Modul → Param-Lerp (Live-Morph,
-  `studio-v005.html:2065-2068`). Anderes Modul → Z-Push/Crossfade über den
-  Transition-Pass (`studio-v005.html:2078-2088`).
-- Pro State: `hold`, `transition` (zpush/cross), `dur`. Drag-Reorder
+- **Playback** (`studio-v005.html:2051-2071`): hold timer per state → auto-advance →
+  `interpolate` across all 3 zones. Same module → param lerp (live morph,
+  `studio-v005.html:2065-2068`). Different module → Z-push/crossfade via the
+  transition pass (`studio-v005.html:2078-2088`).
+- Per state: `hold`, `transition` (zpush/cross), `dur`. Drag-reorder
   (`studio-v005.html:1962-1966`). Export/Import JSON (`studio-v005.html:2026-2027`).
 
-### 1.6 Schema-getriebene UI
+### 1.6 Schema-Driven UI
 
-Param-Panel, Post-Panel, Style-Panel, Setup-Selector und Sequencer bauen sich
-dynamisch aus `schema` + STYLE + GLOBAL (`studio-v005.html:1748-1853`).
+Param panel, post panel, style panel, setup selector and sequencer are built
+dynamically from `schema` + STYLE + GLOBAL (`studio-v005.html:1748-1853`).
 
 ---
 
-## 2. Was das Godot-Projekt heute hat (nach S0)
+## 2. What the Godot Project Has Today (after S0)
 
-| Bereich | Stand | Referenz |
-|---------|-------|----------|
+| Area | Status | Reference |
+|------|--------|-----------|
 | Autoloads | `Style → DisplaySetup → BackgroundStage → RuntimeUI` | `project.godot:19-24` |
-| Szenen | exakt 2, hartkodiert, zyklischer Wechsel | `background_stage.gd:28-31` |
-| Transition | EIN Typ: symmetrischer Zoom + additive Komplementär-Fade | `background_stage.gd:198-206` |
-| **Farben** | ✅ **zentrale STYLE-Palette (8 Farben) über globale Shader-Uniforms; Gradient-Sky pro Szene** | `style.gd`, `gradient_sky.gdshader` |
-| Post | nur pro-Szene `WorldEnvironment` Glow + Adjustments, kein globaler Composite-Post | `runtime_ui.gd:23-30` |
-| UI | auto-introspektiv (Root-`@export` + Shader-Uniforms + feste POST-Params) + STYLE-Picker | `runtime_ui.gd:170-193`, `_build_style_config` |
-| States/Presets/Sequencer | **nichts** | — |
+| Scenes | exactly 2, hardcoded, cyclic switch | `background_stage.gd:28-31` |
+| Transition | ONE type: symmetric zoom + additive complementary fade | `background_stage.gd:198-206` |
+| **Colors** | ✅ **central STYLE palette (8 colors) via global shader uniforms; gradient sky per scene** | `style.gd`, `gradient_sky.gdshader` |
+| Post | only per-scene `WorldEnvironment` Glow + Adjustments, no global composite post | `runtime_ui.gd:23-30` |
+| UI | auto-introspective (Root `@export` + shader uniforms + fixed POST params) + STYLE picker | `runtime_ui.gd:170-193`, `_build_style_config` |
+| States/Presets/Sequencer | **nothing** | — |
 
-Was Godot **besser** macht und behalten werden muss:
-- Echte 3D-Szenen mit eigener Kamera/World/Environment je SubViewport — kein
-  Render-to-RT-Gefrickel.
-- Die Zoom-Transition (`background_stage.gd:198-214`) ist hochwertiger als der
-  JS-Z-Push und ist faktisch schon der „zpush"-Modus.
-- Die auto-introspektive UI (`runtime_ui.gd`) liefert das Schema gratis aus
-  `@export`/Uniforms — wir brauchen kaum manuelle Schemas.
+What Godot does **better** and must be kept:
+- Real 3D scenes with their own camera/world/environment per SubViewport — no
+  render-to-RT hacks.
+- The zoom transition (`background_stage.gd:198-214`) is higher quality than the
+  JS Z-push and is effectively already the "zpush" mode.
+- The auto-introspective UI (`runtime_ui.gd`) provides the schema for free from
+  `@export`/uniforms — we barely need manual schemas.
 
 ---
 
-## 3. Gap-Analyse: Was fehlt, und der idiomatische Godot-Weg
+## 3. Gap Analysis: What Is Missing and the Idiomatic Godot Approach
 
-### G1 — Zentrale Palette + Gradient-Hintergrund (STYLE) ✅ ERLEDIGT (S0)
+### G1 — Central Palette + Gradient Background (STYLE) ✅ DONE (S0)
 
-Globale Palette als `Style`-Autoload, in **globale Shader-Uniforms** gespiegelt
-(`RenderingServer.global_shader_parameter_set`). Szenen-Shader lesen
-`global uniform vec4 … : source_color`; Gradient via `shader_type sky` über
+Global palette as `Style` autoload, mirrored into **global shader uniforms**
+(`RenderingServer.global_shader_parameter_set`). Scene shaders read
+`global uniform vec4 … : source_color`; gradient via `shader_type sky` over
 `EYEDIR.y`. Details in §8.
 
-### G2 — Globaler Composite-Post (Bloom/Tonemap/Vignette/Grain)
+### G2 — Global Composite Post (Bloom/Tonemap/Vignette/Grain)
 
-**Fehlt:** Einheitlicher Post über das KOMPONIERTE Bild. Heute nur pro-Szene-Glow.
+**Missing:** Unified post over the composited image. Currently only per-scene Glow.
 
-**Godot-Weg — Entscheidung nötig (siehe §5, D1):**
-- **Variante A (empfohlen, sauber):** Beide Layer-Rects in einen **Master-Composite-
-  SubViewport** rendern, der ein eigenes `WorldEnvironment` trägt (Glow = Bloom,
-  Adjustments = Kontrast/Sättigung, Tonemap ACES) **plus** einen finalen
-  `canvas_item`-Post-Shader für Vignette + Grain. Vereinheitlicht Post, ermöglicht
-  echtes Bloom über die Mischung. Mittlerer Umbau an `background_stage.gd`.
-- **Variante B (schneller Zwischenschritt):** Per-Szene-Glow behalten, nur einen
-  globalen Vignette/Grain-`canvas_item`-Shader als CanvasLayer (~layer 50) oben
-  drauf. Bloom bleibt pro-Szene.
+**Godot approach — decision needed (see §5, D1):**
+- **Option A (recommended, clean):** Render both layer rects into a **master composite
+  SubViewport** that carries its own `WorldEnvironment` (Glow = Bloom,
+  Adjustments = Contrast/Saturation, Tonemap ACES) **plus** a final
+  `canvas_item` post shader for Vignette + Grain. Unifies post, enables
+  real bloom over the mix. Medium refactor of `background_stage.gd`.
+- **Option B (faster intermediate step):** Keep per-scene Glow, just add a
+  global Vignette/Grain `canvas_item` shader as CanvasLayer (~layer 50) on top.
+  Bloom stays per-scene.
 
-Anbindung an STYLE: die Post-Werte werden später eine eigene „post"-Zone im
-State-Modell (G4); für S1 reicht ein globales `Post`-Datenobjekt (analog `Style`).
+Connection to STYLE: the post values will later form their own "post" zone in the
+state model (G4); for S1 a global `Post` data object (analogous to `Style`) is enough.
 
-### G3 — Mehrere Module / Registry / Selector
+### G3 — Multiple Modules / Registry / Selector
 
-**Fehlt:** Erweiterbare Registry (heute 2 hartkodiert, `background_stage.gd:28-31`),
-ein Szenen-**Selector** (nicht nur „nächste"), Anzeige-Namen-Tabelle.
+**Missing:** Extensible registry (currently 2 hardcoded, `background_stage.gd:28-31`),
+a scene **selector** (not just "next"), display name table.
 
-**Godot-Weg:** SCENES zu einer Tabelle `[{path, display_name, id}]` erweitern;
-`transition_to(idx)` existiert bereits (`background_stage.gd:160`) — nur ein UI-
-Selector fehlt. (Deckt sich mit improvementPlan 1.4.)
+**Godot approach:** Extend SCENES to a table `[{path, display_name, id}]`;
+`transition_to(idx)` already exists (`background_stage.gd:160`) — only a UI
+selector is missing. (Aligns with improvementPlan 1.4.)
 
-### G4 — State-/Sequencer-System ★ größter Brocken
+### G4 — State/Sequencer System ★ biggest piece
 
-**Fehlt:** komplett. Kein State-Modell, keine Presets, kein Playback, kein Sequencer.
+**Missing:** completely. No state model, no presets, no playback, no sequencer.
 
-**Godot-Weg:**
-- `BgCore` als `RefCounted`-Klasse portieren: `clone/resolve/diff/interpolate/
-  summarize` über Dict `{gradient, module, post}`. Direkte Portierung von
-  `studio-v005.html:1592-1693` — reine Datenlogik, gut testbar.
-- **Param-Brücke (Kernproblem):** Web-Params sind ein flaches JS-Dict; Godot-Params
-  leben auf Nodes (`@export` + Shader-Uniforms). Lösung: eine Snapshot/Apply-Schicht,
-  die die in `runtime_ui.gd` bereits enumerierten getter/setter-Callables
-  (`runtime_ui.gd:251-252`, `286-292`) unter **stabilen Schlüsseln** (`node::uniform`
-  bzw. `prop`) zu einem Dict bündelt. `moduleId` = Szenen-Index/Pfad. `gradient` =
-  Style-Palette (liegt nach S0 schon als Dict via `Style.get_palette()` vor). `post`
-  = globale Post-Params.
-- Sequencer-UI: neuer Bereich in `runtime_ui.gd` (oder eigenes Autoload) — States-
-  Liste, +State, Play, Hold/Dur/Transition, Reorder, Save/Load.
-- Playback-Engine: `_process`-Loop (in BackgroundStage oder neuem `Sequencer`-
-  Autoload): Hold-Timer → Advance → gleiche Szene = Param-Morph via `interpolate`
-  je Frame; andere Szene = `transition_to` + gradient/post interpolieren.
+**Godot approach:**
+- Port `BgCore` as a `RefCounted` class: `clone/resolve/diff/interpolate/
+  summarize` over Dict `{gradient, module, post}`. Direct port from
+  `studio-v005.html:1592-1693` — pure data logic, easily testable.
+- **Param bridge (core problem):** Web params are a flat JS dict; Godot params
+  live on nodes (`@export` + shader uniforms). Solution: a snapshot/apply layer
+  that bundles the getter/setter callables already enumerated in `runtime_ui.gd`
+  (`runtime_ui.gd:251-252`, `286-292`) under **stable keys** (`node::uniform`
+  or `prop`) into a dict. `moduleId` = scene index/path. `gradient` =
+  style palette (already available as dict via `Style.get_palette()` after S0). `post`
+  = global post params.
+- Sequencer UI: new section in `runtime_ui.gd` (or separate autoload) — states
+  list, +State, Play, Hold/Dur/Transition, Reorder, Save/Load.
+- Playback engine: `_process` loop (in BackgroundStage or new `Sequencer`
+  autoload): hold timer → advance → same scene = param morph via `interpolate`
+  per frame; different scene = `transition_to` + gradient/post interpolate.
 
-### G5 — Parameter-Morph (gleiche Szene)
+### G5 — Parameter Morph (same scene)
 
-**Fehlt:** Heute crossfaded die Transition nur das gerenderte Bild; Params springen.
+**Missing:** Currently the transition only crossfades the rendered image; params jump.
 
-**Godot-Weg:** Param-Tweening über die Apply-Schicht aus G4 — numerisch lerp,
-Color lerp, int gerundet (entspricht `studio-v005.html:1673-1690`).
+**Godot approach:** Param tweening via the apply layer from G4 — numeric lerp,
+Color lerp, int rounded (corresponds to `studio-v005.html:1673-1690`).
 
-### G6 — Transition-Modi
+### G6 — Transition Modes
 
-**Fehlt:** Nur Zoom-Transition. Kein Crossfade-Modus, keine pro-State-Wahl.
+**Missing:** Only zoom transition. No crossfade mode, no per-state choice.
 
-**Godot-Weg:** Zweiten Modus `cross` (reine Fade ohne Zoom-Hub) ergänzen; der
-bestehende Zoom = `zpush`. Pro-State `transition`-Feld wählt. Geringer Aufwand —
-`transition_to` um einen `mode`-Parameter erweitern.
+**Godot approach:** Add second mode `cross` (pure fade without zoom hub); the
+existing zoom = `zpush`. Per-state `transition` field selects. Low effort —
+extend `transition_to` with a `mode` parameter.
 
-### G7 — Schema-Komfort (Dial / Shape / kuratierte Labels)
+### G7 — Schema Comfort (Dial / Shape / curated Labels)
 
-**Fehlt (nice-to-have):** Winkelrad (`dial`), Form-Cluster (`shape`), explizite
-Labels. Godots `@export_range`/`@export_group` deckt Ranges & Gruppen schon ab.
+**Missing (nice-to-have):** Angle wheel (`dial`), shape cluster (`shape`), explicit
+labels. Godot's `@export_range`/`@export_group` already covers ranges & groups.
 
-**Godot-Weg:** Custom-Controls in `runtime_ui.gd` (Dial via `_draw`/Control,
-Shape via Button-Reihe). Optional, aufschiebbar.
+**Godot approach:** Custom controls in `runtime_ui.gd` (dial via `_draw`/Control,
+shape via button row). Optional, deferrable.
 
-### G8 — Fehlende Module als Content-Track
+### G8 — Missing Modules as Content Track
 
-5 von 7 Modulen existieren nicht als Godot-Szene (plexus, lines, stripes, cubic,
-structure). Das ist **Content**, kein Framework — separater Track, Modul für Modul.
-Das Framework (G1–G7) ist modul-agnostisch und hat Vorrang.
-
----
-
-## 4. Milestones — Reihenfolge & Status
-
-Aufbauend auf dem bestehenden `improvementPlan.md` (M0–M5). v05-studio ist die
-Studio-Parität-Erweiterung darüber.
-
-- **S0 — Globale Palette + Gradient-Hintergrund (G1).** ✅ **ERLEDIGT** —
-  `Style`-Autoload + `[shader_globals]`; tunnel/wave auf globale Uniforms; Gradient-
-  Sky pro SubViewport; STYLE-Picker im Panel. *(Editor-Verifikation in 4.6.1 noch
-  ausstehend, s. §8.)*
-- **S1 — Globaler Composite-Post (G2).** Master-Composite-Stage (Variante A) mit
-  einheitlichem Bloom/Tonemap/Vignette/Grain; im Panel als POST-Zone. *Braucht D1.*
-- **S2 — Param-Snapshot/Apply-Schicht (G4-Teil).** ✅ `param_store.gd` (ParamStore-
-  Autoload): flaches benanntes Register über die aktive Szene; `capture/apply/
-  lerp_values`. D4 entschieden (s. §5, §8).
-- **S3 — BgCore-Statemodell + Preset-I/O nach `user://` (G4-Teil).** ✅ `bg_core.gd`
-  (BgCore-Autoload): benannte Presets als JSON in `user://presets/`; diff/resolve/
-  summarize für S4; PRESET-Sektion im Panel (SAVE/LOAD/DEL). *Faltet improvementPlan
-  1.3 ein. Details §8.*
-- **S4 — Sequencer-UI + Playback (G4/G5).** ✅ `sequencer.gd` (Sequencer-Autoload):
-  Preset-Playlist (Schritt = `{preset, hold, trans}`), Play/Stop/Next, Reorder,
-  Persistenz nach `user://sequence.json`; Param-Morph (gleiche Szene, `apply_lerp`) +
-  Zoom-Transition (Szenenwechsel). SEQUENCE-Sektion im Panel. D3 entschieden (s. §5).
-  *Faltet improvementPlan 1.2 (Auto-Cycle) ein. Volles Keyframe-Timeline = später.*
-- **S5 — Transition-Modi + Schema-Komfort + Particle Wave Korrektur (G6/G7).** ✅ **ERLEDIGT** —
-  Crossfade-Modus; Shape-Picker; per-Step-Mode-Dropdown; PREV-Button; JSON Export/Import;
-  Wire-Grid; Particle Wave zu HTML-Parität korrigiert (Punkt-Größe, Fragment-Thresholds,
-  Glow-Formel, Grid-Zentrierung, Kamera-Semantik).
-- **S6 (separater Track) — Restliche 5 Module portieren (G8).** Eins nach dem anderen.
-
-Reihenfolge ist hart: S0 lieferte die globalen Uniforms (✅), ohne die S1/S3 keinew
-Farb-Zone hätten; S2 liefert die Param-Map, ohne die S4 nichts morphen kann.
+5 of 7 modules do not exist as Godot scenes (plexus, lines, stripes, cubic,
+structure). This is **content**, not framework — separate track, module by module.
+The framework (G1–G7) is module-agnostic and takes priority.
 
 ---
 
-## 5. Entscheidungspunkte
+## 4. Milestones — Order & Status
 
-- **D1 — Composite-Post:** Variante A (Master-SubViewport, echtes Bloom, mehr Umbau)
-  vs. Variante B (Vignette/Grain-Overlay, Glow bleibt pro-Szene). → Empfehlung A.
-  **Offen — vor S1 zu klären.**
-- **D2 — Gradient-Hintergrund:** Sky-Shader vs. ColorRect-Gradient-Layer.
-  ✅ **Entschieden: Sky-Shader** (in S0 umgesetzt).
-- **D3 — Sequencer-Heimat:** ✅ **Entschieden: neues `Sequencer`-Autoload** (in S4
-  umgesetzt; nach `BgCore`, vor `RuntimeUI`). Trennt Laufzeit-Playback (Uhr/Cursor/
-  is_playing) von BgCores Datei-I/O; RuntimeUI ruft nur `play/stop/next`.
-- **D4 — Param-Identität:** ✅ **Entschieden: flaches benanntes Schema** (in S2
-  umgesetzt): `style/<key>`, `scene/<export>`, `mat/<Node>/<uniform>`, `post/<prop>`,
-  `overlay/<prop>`. Stabil über Reload/Szenenwechsel; `apply()` überspringt
-  Schlüssel, die in der aktiven Szene nicht aufgelöst werden (sauberer Szenenwechsel).
+Building on the existing `improvementPlan.md` (M0–M5). v05-studio is the
+studio parity extension on top.
 
-## 6. Risiken / Hinweise
+- **S0 — Global Palette + Gradient Background (G1).** ✅ **DONE** —
+  `Style` autoload + `[shader_globals]`; tunnel/wave on global uniforms; gradient
+  sky per SubViewport; STYLE picker in panel. *(Editor verification in 4.6.1 still
+  pending, see §8.)*
+- **S1 — Global Composite Post (G2).** Master composite stage (option A) with
+  unified Bloom/Tonemap/Vignette/Grain; in panel as POST zone. *Requires D1.*
+- **S2 — Param Snapshot/Apply Layer (G4 part).** ✅ `param_store.gd` (ParamStore
+  autoload): flat named register over the active scene; `capture/apply/
+  lerp_values`. D4 decided (see §5, §8).
+- **S3 — BgCore State Model + Preset I/O to `user://` (G4 part).** ✅ `bg_core.gd`
+  (BgCore autoload): named presets as JSON in `user://presets/`; diff/resolve/
+  summarize for S4; PRESET section in panel (SAVE/LOAD/DEL). *Folds in improvementPlan
+  1.3. Details §8.*
+- **S4 — Sequencer UI + Playback (G4/G5).** ✅ `sequencer.gd` (Sequencer autoload):
+  preset playlist (step = `{preset, hold, trans}`), Play/Stop/Next, Reorder,
+  persistence to `user://sequence.json`; param morph (same scene, `apply_lerp`) +
+  zoom transition (scene change). SEQUENCE section in panel. D3 decided (see §5).
+  *Folds in improvementPlan 1.2 (auto-cycle). Full keyframe timeline = later.*
+- **S5 — Transition Modes + Schema Comfort + Particle Wave Fix (G6/G7).** ✅ **DONE** —
+  Crossfade mode; shape picker; per-step mode dropdown; PREV button; JSON export/import;
+  wire grid; Particle Wave corrected to HTML parity (point size, fragment thresholds,
+  glow formula, grid centering, camera semantics).
+- **S6 (separate track) — Port remaining 5 modules (G8).** One at a time.
 
-- **Global Shader Uniforms** müssen in `project.godot` unter `[shader_globals]`
-  deklariert sein, bevor Shader sie als `global uniform` lesen — sonst stiller Fehler.
-  (In S0 erledigt.) 
-- **Farbraum:** Globals sind als `color` deklariert + Shader-Uniforms mit
-  `: source_color` → genau EINE sRGB→linear-Wandlung an der Shader-Grenze. `Style`
-  hält & liefert sRGB; **nie vorab konvertieren**. Sollte das in 4.6.1 doppelt
-  konvertieren (Bild zu dunkel), auf `vec4`-Globals + manuelles `srgb_to_linear()`
-  in `style.gd` umstellen.
-- **Zwei getrennte World3D** (`background_stage.gd:87`): ein einzelner globaler Post
-  über die Mischung erzwingt das Zusammenführen beider Rects in ein Ziel (→ D1/A).
-- **Bestehende Zoom-Transition NICHT ersetzen** — sie ist das `zpush`-Äquivalent und
-  hochwertiger als der JS-Z-Push; nur Crossfade als zweiten Modus daneben.
-- **Param-Snapshot** darf nur Panel-sichtbare Laufzeitwerte erfassen (keine Build-
-  Time-Felder wie `grid_w/grid_h` aus `grid_builder.gd`, die einen Rebuild brauchen)
-  — sonst morpht ein Slider, der zur Laufzeit nichts tut. Deckt sich mit der
-  Preset-Scope-Festlegung aus improvementPlan 1.3.
-- **`particle_wave.tscn` `unique_id=`-Sanierung** (improvementPlan M0/0.1) ist noch
-  offen — in S0 bewusst NICHT angefasst. Sollte vor S2 erledigt sein.
-- **Kein git ausführen** (Nutzer-Vorgabe): Commit-Befehle nur beschreiben, nicht
-  selbst absetzen.
+Order is strict: S0 delivered the global uniforms (✅), without which S1/S3 would have
+no color zone; S2 delivers the param map, without which S4 cannot morph anything.
 
 ---
 
-## 7. Nächster Schritt
+## 5. Decision Points
 
-S0–S5 sind umgesetzt (✅ Framework-Parität + Particle Wave Korrektur). Als Nächstes **S6**
-(Content, G8): die restlichen 5 Module nacheinander portieren (plexus, lines, stripes,
-cubic, structure). Optional-Ausbau: **S4.5** (volle Keyframe-Timeline — per-Param-Tracks,
-Scrubber, Easing als Ausbau des Sequencers). Weiterhin erwägenswert: UI + ParamStore-
-Enumeration auf EIN Register vereinen. Optional vorab **M0** (`particle_wave.tscn`
-`unique_id=`-Sanierung).
+- **D1 — Composite Post:** Option A (master SubViewport, real bloom, more refactoring)
+  vs. Option B (Vignette/Grain overlay, Glow stays per-scene). → Recommendation: A.
+  **Open — to be decided before S1.**
+- **D2 — Gradient Background:** Sky shader vs. ColorRect gradient layer.
+  ✅ **Decided: Sky shader** (implemented in S0).
+- **D3 — Sequencer home:** ✅ **Decided: new `Sequencer` autoload** (implemented in S4;
+  after `BgCore`, before `RuntimeUI`). Separates runtime playback (clock/cursor/
+  is_playing) from BgCore's file I/O; RuntimeUI only calls `play/stop/next`.
+- **D4 — Param identity:** ✅ **Decided: flat named schema** (implemented in S2):
+  `style/<key>`, `scene/<export>`, `mat/<Node>/<uniform>`, `post/<prop>`,
+  `overlay/<prop>`. Stable across reload/scene changes; `apply()` skips
+  keys that cannot be resolved in the active scene (clean scene switch).
+
+## 6. Risks / Notes
+
+- **Global Shader Uniforms** must be declared in `project.godot` under `[shader_globals]`
+  before shaders can read them as `global uniform` — otherwise silent error.
+  (Done in S0.)
+- **Color space:** Globals declared as `color` + shader uniforms with
+  `: source_color` → exactly ONE sRGB→linear conversion at the shader boundary. `Style`
+  holds & delivers sRGB; **never pre-convert**. If 4.6.1 converts twice
+  (image too dark), switch to `vec4` globals + manual `srgb_to_linear()`
+  in `style.gd`.
+- **Two separate World3D** (`background_stage.gd:87`): a single global post
+  over the mix forces combining both rects into one target (→ D1/A).
+- **Do NOT replace the existing zoom transition** — it is the `zpush` equivalent and
+  higher quality than the JS Z-push; just add crossfade as a second mode alongside it.
+- **Param snapshot** must only capture panel-visible runtime values (no build-
+  time fields like `grid_w/grid_h` from `grid_builder.gd` that require a rebuild)
+  — otherwise a slider morphs that does nothing at runtime. Aligns with the
+  preset scope definition from improvementPlan 1.3.
+- **`particle_wave.tscn` `unique_id=` cleanup** (improvementPlan M0/0.1) is still
+  open — deliberately NOT touched in S0. Should be done before S2.
+- **Do not run git** (user requirement): only describe commit commands, do not
+  execute them.
 
 ---
 
-## 8. Implementierungs-Log
+## 7. Next Step
 
-### S0 — Globale STYLE-Palette + Gradient-Sky *(erledigt; Editor-Verifikation in 4.6.1 offen)*
+S0–S5 are implemented (✅ framework parity + Particle Wave fix). Next up: **S6**
+(content, G8): port the remaining 5 modules one by one (plexus, lines, stripes,
+cubic, structure). Optional extension: **S4.5** (full keyframe timeline — per-param tracks,
+scrubber, easing as extension of the sequencer). Also worth considering: unify UI + ParamStore
+enumeration into ONE register. Optional first: **M0** (`particle_wave.tscn`
+`unique_id=` cleanup).
 
-**Neue Dateien**
-- `style.gd` — Autoload (ERSTER in der Reihenfolge). Hält 8 sRGB-Farben
+---
+
+## 8. Implementation Log
+
+### S0 — Global STYLE Palette + Gradient Sky *(done; editor verification in 4.6.1 pending)*
+
+**New files**
+- `style.gd` — Autoload (FIRST in order). Holds 8 sRGB colors
   (`sky_zenith/sky_mid/sky_horizon/sky_ground_mid/sky_ground/fog_color/elem_a/elem_b`),
-  spiegelt sie via `RenderingServer.global_shader_parameter_set` in die globalen
-  Uniforms, `changed`-Signal. API: `get_color/set_color/get_palette/set_palette/keys`.
-- `gradient_sky.gdshader` — `shader_type sky`; 5-Stop-Verlauf über `EYEDIR.y`
-  (`t = EYEDIR.y*0.5+0.5`), Stops identisch zum Web (`studio-v005.html:255-258`).
+  mirrors them via `RenderingServer.global_shader_parameter_set` into global
+  uniforms, `changed` signal. API: `get_color/set_color/get_palette/set_palette/keys`.
+- `gradient_sky.gdshader` — `shader_type sky`; 5-stop gradient over `EYEDIR.y`
+  (`t = EYEDIR.y*0.5+0.5`), stops identical to web (`studio-v005.html:255-258`).
 
-**Geänderte Dateien**
-- `project.godot` — `Style` als erster `[autoload]`; neuer `[shader_globals]`-Block
-  mit 8 `color`-Globals.
-- `particle_wave.gdshader` — `col_valley/col_mid/col_crest` ersetzt durch
+**Changed files**
+- `project.godot` — `Style` as first `[autoload]`; new `[shader_globals]` block
+  with 8 `color` globals.
+- `particle_wave.gdshader` — `col_valley/col_mid/col_crest` replaced by
   `global uniform vec4 fog_color/elem_a/elem_b : source_color` (c1=Fog, c2=elemA,
-  c3=elemB, wie `studio-v005.html:501`).
-- `tunnel_sim.gd` — `@export_group("Colors")` + 3 Farb-Exports entfernt; liest
-  `fog_color/elem_a/elem_b` je Frame aus `Style` (CPU-Vertex-Farben).
-- `tunnel_wave.tscn`, `particle_wave.tscn` — Environment auf `background_mode = 2`
-  (Sky) mit Gradient-Sky-`ShaderMaterial`; tote `shader_parameter/col_*` entfernt.
-  Glow/Tonemap/Adjustments unverändert. `unique_id=`-Keys bewusst belassen (→ M0).
-- `runtime_ui.gd` — kompakter **STYLE**-Bereich (`_build_style_config`, 8 Color-
-  Picker 2-spaltig im persistenten `outer`-Container) → `Style.set_color`.
+  c3=elemB, as `studio-v005.html:501`).
+- `tunnel_sim.gd` — `@export_group("Colors")` + 3 color exports removed; reads
+  `fog_color/elem_a/elem_b` per frame from `Style` (CPU vertex colors).
+- `tunnel_wave.tscn`, `particle_wave.tscn` — Environment set to `background_mode = 2`
+  (Sky) with gradient sky `ShaderMaterial`; dead `shader_parameter/col_*` removed.
+  Glow/Tonemap/Adjustments unchanged. `unique_id=` keys deliberately left (→ M0).
+- `runtime_ui.gd` — compact **STYLE** section (`_build_style_config`, 8 color
+  pickers 2-column in persistent `outer` container) → `Style.set_color`.
 
-**Verifikation in Godot 4.6.1 (vom Nutzer durchzuführen)**
-1. Beide Szenen laden fehlerfrei (Shader kompilieren, keine Parser-Fehler).
-2. STYLE-Picker ändern → Gradient UND Element-Farben beider Hintergründe live.
-3. Erwartet: Tunnel & Wave nutzen jetzt dieselbe Palette statt alter Lokalfarben.
+**Verification in Godot 4.6.1 (to be done by user)**
+1. Both scenes load without errors (shaders compile, no parser errors).
+2. Change STYLE picker → gradient AND element colors of both backgrounds update live.
+3. Expected: Tunnel & Wave now use the same palette instead of old local colors.
 
-**ext_resource ohne `uid=`** für `gradient_sky.gdshader` in beiden `.tscn` — Godot
-vergibt die uid beim ersten Speichern (vermeidet uid-Mismatch); `.uid`-Dateien für
-`style.gd`/`gradient_sky.gdshader` legt der Import an.
+**`ext_resource` without `uid=`** for `gradient_sky.gdshader` in both `.tscn` — Godot
+assigns the uid on first save (avoids uid mismatch); `.uid` files for
+`style.gd`/`gradient_sky.gdshader` are created by the importer.
 
-### S1 — Globaler Composite-Post *(erledigt; Editor-Verifikation in 4.6.1 offen)*
+### S1 — Global Composite Post *(done; editor verification in 4.6.1 pending)*
 
-D1 = **Variante A**. `background_stage.gd`: neuer Master-SubViewport (`use_hdr_2d`,
-`own_world_3d`, `UPDATE_ALWAYS`) hält den schwarzen Fond + beide Zoom/Fade-Layer-
-Rects; ein darin liegendes `WorldEnvironment` macht **nur** Glow/Bloom (`BG_CANVAS`,
-additiv, `glow_hdr_threshold` 0.7). Ein finaler On-Screen-`TextureRect` (`_final`)
-sampelt die HDR-Master-Textur und fährt **ACES-Tonemap → Vignette → Grain** in einem
-`canvas_item`-OVERLAY_SHADER (Tonemap bewusst NICHT in der Env, da kamera-loses 2D
-nur das Glow zuverlässig bekommt). Beide Szenen-`.tscn`-Envs auf Gradient-Sky reduziert
-(`tonemap_mode = 0`, kein Glow/Adjustments). Neu: `active_texture()` → Master,
-`post_environment()`/`post_overlay()`-Accessoren. `runtime_ui.gd` POST-Sektion zeigt
-auf die Master-Env + Vignette/Grain-Slider (`_add_overlay_slider`); `POST_PARAMS` auf
-Glow reduziert. Grenze: Szenen-SubViewports sind LDR RGBA8 → Emission >1 klemmt beim
-Szene→Master-Hop; Bloom triggert über `glow_hdr_threshold`; Stellschrauben =
+D1 = **Option A**. `background_stage.gd`: new master SubViewport (`use_hdr_2d`,
+`own_world_3d`, `UPDATE_ALWAYS`) holds the black background + both zoom/fade layer
+rects; a `WorldEnvironment` inside handles **only** Glow/Bloom (`BG_CANVAS`,
+additive, `glow_hdr_threshold` 0.7). A final on-screen `TextureRect` (`_final`)
+samples the HDR master texture and runs **ACES tonemap → Vignette → Grain** in a
+`canvas_item` OVERLAY_SHADER (tonemap deliberately NOT in the Env, since camera-less 2D
+only reliably gets the Glow). Both scene `.tscn` envs reduced to gradient sky
+(`tonemap_mode = 0`, no Glow/Adjustments). New: `active_texture()` → Master,
+`post_environment()`/`post_overlay()` accessors. `runtime_ui.gd` POST section points
+to the master env + Vignette/Grain sliders (`_add_overlay_slider`); `POST_PARAMS` reduced to
+Glow. Limitation: scene SubViewports are LDR RGBA8 → emission >1 clips at the
+scene→master hop; bloom triggers over `glow_hdr_threshold`; control knobs =
 `glow_hdr_threshold` / `glow_strength`.
 
-### S2 — Param-Snapshot/Apply-Schicht *(erledigt; Editor-Verifikation in 4.6.1 offen)*
+### S2 — Param Snapshot/Apply Layer *(done; editor verification in 4.6.1 pending)*
 
-**Neue Datei**
-- `param_store.gd` — Autoload **ParamStore** (nach `BackgroundStage`, vor `RuntimeUI`).
-  Baut bei jedem `active_changed` ein flaches Register `{key → {key,type,getter,setter}}`
-  aus den 5 Quellen (D4-Schema): `style/<key>`, `scene/<export>`, `mat/<Node>/<uniform>`,
+**New file**
+- `param_store.gd` — Autoload **ParamStore** (after `BackgroundStage`, before `RuntimeUI`).
+  Builds a flat register `{key → {key,type,getter,setter}}` on each `active_changed`
+  from the 5 sources (D4 schema): `style/<key>`, `scene/<export>`, `mat/<Node>/<uniform>`,
   `post/<prop>`, `overlay/<prop>`. API: `capture() → Dictionary`, `apply(values)`
-  (überspringt nicht auflösbare Keys), `lerp_values(a,b,t)` + `apply_lerp` (typgerecht:
+  (skips unresolvable keys), `lerp_values(a,b,t)` + `apply_lerp` (type-appropriate:
   `lerpf` / `Color.lerp` / `Vector*.lerp` / bool@0.5), `active_scene_key()`,
-  `keys()`/`has_key()`. Snapshot = reines `{key: value}`.
-- **In-Session-Persistenz über TRANSITION:** `_scene_cache` (Szenenname → scene/*+mat/*).
-  Bei `active_changed` werden die szenenspezifischen Werte der verlassenen Szene
-  gesichert und beim Wiederbetreten erneut angewandt — sonst setzt `background_stage`
-  sie beim Neu-Instanziieren auf die `.tscn`-Defaults zurück. (style/post/overlay
-  überleben ohnehin, da Autoload/Master.) Hält nur zur Laufzeit; persistente
-  benannte Presets auf Platte = S3.
+  `keys()`/`has_key()`. Snapshot = plain `{key: value}`.
+- **In-session persistence via TRANSITION:** `_scene_cache` (scene name → scene/*+mat/*).
+  On `active_changed` the scene-specific values of the leaving scene are saved
+  and reapplied on return — otherwise `background_stage` resets them to `.tscn`
+  defaults on re-instantiation. (style/post/overlay survive anyway, as autoload/master.)
+  Runtime-only; persistent named presets on disk = S3.
 
-**Geänderte Datei**
-- `project.godot` — `ParamStore="*res://param_store.gd"` zwischen `BackgroundStage`
-  und `RuntimeUI`.
+**Changed file**
+- `project.godot` — `ParamStore="*res://param_store.gd"` between `BackgroundStage`
+  and `RuntimeUI`.
 
-**Hinweis (Drift-Risiko):** Die Enumerations-Logik spiegelt `runtime_ui.gd` (gleiche
-5 Quellen, gleiche Typ-Heuristik). S4 sollte erwägen, UI + Store auf EIN Register zu
-vereinen, statt zwei parallele Traversierungen zu pflegen.
+**Note (drift risk):** The enumeration logic mirrors `runtime_ui.gd` (same
+5 sources, same type heuristic). S4 should consider unifying UI + store into ONE register
+rather than maintaining two parallel traversals.
 
-**Verifikation in Godot 4.6.1 (vom Nutzer durchzuführen)**
-1. Projekt lädt fehlerfrei (ParamStore parst, keine Lambda-/Parser-Fehler).
-2. Smoke-Test in einem beliebigen Skript/Console:
-   `var s = ParamStore.capture()` → enthält `style/sky_zenith`, `post/glow_intensity`,
-   `overlay/vignette` + szenenspezifische `scene/*` / `mat/*`-Keys.
-3. `ParamStore.apply(s)` nach Slider-Verstellung → Werte springen zurück.
-4. Nach `TRANSITION` zur anderen Szene: ein vorher gefangener Snapshot via `apply()`
-   setzt nur die geteilten `style/*` + `post/*` + `overlay/*`, ohne Fehler.
+**Verification in Godot 4.6.1 (to be done by user)**
+1. Project loads without errors (ParamStore parses, no lambda/parser errors).
+2. Smoke test in any script/console:
+   `var s = ParamStore.capture()` → contains `style/sky_zenith`, `post/glow_intensity`,
+   `overlay/vignette` + scene-specific `scene/*` / `mat/*` keys.
+3. `ParamStore.apply(s)` after adjusting sliders → values jump back.
+4. After `TRANSITION` to other scene: a previously captured snapshot via `apply()`
+   sets only the shared `style/*` + `post/*` + `overlay/*`, without errors.
 
-### S3 — BgCore-Statemodell + Preset-I/O *(erledigt; Editor-Verifikation in 4.6.1 offen)*
+### S3 — BgCore State Model + Preset I/O *(done; editor verification in 4.6.1 pending)*
 
-**Neue Datei**
-- `bg_core.gd` — Autoload **BgCore** (nach `ParamStore`, vor `RuntimeUI`). Speichert
-  benannte Presets als JSON in `user://presets/<name>.json`; Dokument =
-  `{version, scene, params}`. Werte JSON-sicher kodiert: `Color → {_t:"col",v:[r,g,b,a]}`,
-  `Vector2/3 → {_t:"v2"/"v3",...}`, Zahlen/Bool nativ; beim Lesen dekodiert, `apply`
-  zieht sie über die Register-Typen zurecht (`_coerce`). API: `save_current(name)` /
-  `save_snapshot(name,snap)`, `load_preset(name)` (liest **und** wendet an, gibt
-  Snapshot), `read_preset` / `read_doc`, `delete_preset`, `list_presets`, `has_preset`.
-  Zustands-Utilities für S4: `diff(base,other)` (sparse Delta = Root+Delta-Modell),
-  `resolve(root,delta)`, `summarize`; Interpolation liefert `ParamStore.lerp_values`.
-  `presets_changed`-Signal. Dateinamen via `String.validate_filename()` gesäubert.
+**New file**
+- `bg_core.gd` — Autoload **BgCore** (after `ParamStore`, before `RuntimeUI`). Saves
+  named presets as JSON in `user://presets/<name>.json`; document =
+  `{version, scene, params}`. Values JSON-encoded: `Color → {_t:"col",v:[r,g,b,a]}`,
+  `Vector2/3 → {_t:"v2"/"v3",...}`, numbers/bool native; decoded on read, `apply`
+  coerces them via register types (`_coerce`). API: `save_current(name)` /
+  `save_snapshot(name,snap)`, `load_preset(name)` (reads **and** applies, returns
+  snapshot), `read_preset` / `read_doc`, `delete_preset`, `list_presets`, `has_preset`.
+  State utilities for S4: `diff(base,other)` (sparse delta = root+delta model),
+  `resolve(root,delta)`, `summarize`; interpolation provided by `ParamStore.lerp_values`.
+  `presets_changed` signal. Filenames sanitized via `String.validate_filename()`.
 
-**Geänderte Dateien**
-- `project.godot` — `BgCore="*res://bg_core.gd"` zwischen `ParamStore` und `RuntimeUI`.
-- `runtime_ui.gd` — persistente **PRESET**-Sektion (`_build_preset_config`, im
-  `outer`-Container, einmalig gebaut): `OptionButton`-Dropdown der Presets +
-  Namens-`LineEdit` + **SAVE/LOAD/DEL** + Status-Label. Dropdown-Auswahl füllt das
-  Namensfeld; `presets_changed` → Liste neu aufbauen. Nach **LOAD** gleicht
-  `_after_preset_loaded()` die UI an die geänderten Werte an: `_sync_style_swatches()`
-  (Swatches in `_style_swatches` gemerkt, `set_block_signals` beim Reread → keine
-  Rückkopplung) + `_populate(root)` baut scene/mat/post/overlay-Regler neu.
+**Changed files**
+- `project.godot` — `BgCore="*res://bg_core.gd"` between `ParamStore` and `RuntimeUI`.
+- `runtime_ui.gd` — persistent **PRESET** section (`_build_preset_config`, in
+  `outer` container, built once): `OptionButton` dropdown of presets +
+  name `LineEdit` + **SAVE/LOAD/DEL** + status label. Dropdown selection fills the
+  name field; `presets_changed` → rebuild list. After **LOAD**, `_after_preset_loaded()`
+  syncs the UI to the changed values: `_sync_style_swatches()`
+  (swatches tracked in `_style_swatches`, `set_block_signals` on re-read → no
+  feedback loop) + `_populate(root)` rebuilds scene/mat/post/overlay controls.
 
-**Bewusste Grenze (→ S4):** **LOAD** wendet auf die AKTUELLE Szene an; szenenspezifische
-Keys einer anderen Szene werden übersprungen. Es wird (noch) NICHT automatisch zur im
-Preset getaggten Szene gewechselt — das übernimmt der Sequencer (S4), der Szene +
-Parameter koordiniert. Der `scene`-Tag wird dafür bereits mitgespeichert.
+**Deliberate limitation (→ S4):** **LOAD** applies to the CURRENT scene; scene-specific
+keys of a different scene are skipped. It does NOT automatically switch to the scene
+tagged in the preset — that is handled by the sequencer (S4), which coordinates scene +
+parameters. The `scene` tag is already saved for that purpose.
 
-**Verifikation in Godot 4.6.1 (vom Nutzer durchzuführen)**
-1. Projekt lädt fehlerfrei (BgCore parst, `user://presets/` wird angelegt).
-2. Regler/Farben verstellen → Name eintippen → **SAVE**: Datei in `user://presets/`
-   erscheint, Dropdown listet sie.
-3. Andere Werte einstellen → Preset im Dropdown wählen → **LOAD**: Werte UND
-   Slider/Swatches springen auf den gespeicherten Stand; Render aktualisiert.
-4. **DEL** entfernt das Preset aus Liste und Ordner.
-5. App neu starten → Preset weiterhin in der Liste, **LOAD** stellt es wieder her.
+**Verification in Godot 4.6.1 (to be done by user)**
+1. Project loads without errors (BgCore parses, `user://presets/` is created).
+2. Adjust controls/colors → enter name → **SAVE**: file appears in `user://presets/`,
+   dropdown lists it.
+3. Set different values → select preset in dropdown → **LOAD**: values AND
+   sliders/swatches jump to saved state; render updates.
+4. **DEL** removes the preset from list and folder.
+5. Restart app → preset still in list, **LOAD** restores it.
 
-### S4 — Sequencer-UI + Playback *(erledigt; Editor-Verifikation in 4.6.1 offen)*
+### S4 — Sequencer UI + Playback *(done; editor verification in 4.6.1 pending)*
 
-D3 = **neues `Sequencer`-Autoload**. Erste, on-air-taugliche Stufe: **Preset-Playlist
-+ Crossfade** (nicht die volle Keyframe-Timeline — die ist späterer Ausbau).
+D3 = **new `Sequencer` autoload**. First on-air-capable stage: **preset playlist
++ crossfade** (not the full keyframe timeline — that is later expansion).
 
-**Neue Datei**
-- `sequencer.gd` — Autoload **Sequencer** (nach `BgCore`, vor `RuntimeUI`). Playlist =
-  geordnete `Array` von Schritten `{preset, hold (s), trans (s)}`. `play()` läuft die
-  Liste in Schleife: pro Schritt `hold` halten, dann über `trans` zum nächsten Schritt
-  überblenden — **gleiche Szene** → Param-Morph (`ParamStore.apply_lerp` A→B je Frame),
-  **andere Szene** → bestehende Zoom-Transition (`BackgroundStage.transition_to`),
-  danach `apply` der Preset-Werte auf die neue Szene. Abbruch/Neustart über
-  Generationszähler `_gen` (jede Operation erhöht ihn; laufende Coroutine bricht ab,
-  sobald die gefangene Generation veraltet) — `_playing` ist reine UI-Anzeige, daher
-  funktioniert **NEXT** auch im Stillstand. API: `add_step/remove_step/move_step/
+**New file**
+- `sequencer.gd` — Autoload **Sequencer** (after `BgCore`, before `RuntimeUI`). Playlist =
+  ordered `Array` of steps `{preset, hold (s), trans (s)}`. `play()` runs the
+  list in a loop: hold each step for `hold`, then blend to the next step over `trans` —
+  **same scene** → param morph (`ParamStore.apply_lerp` A→B per frame),
+  **different scene** → existing zoom transition (`BackgroundStage.transition_to`),
+  then `apply` preset values to the new scene. Abort/restart via
+  generation counter `_gen` (each operation increments it; running coroutine aborts
+  once its captured generation is stale) — `_playing` is pure UI display, so
+  **NEXT** also works while stopped. API: `add_step/remove_step/move_step/
   set_step_value/clear`, `get_step/step_count/current_index/is_playing`, `play/stop/
-  next`; `state_changed`-Signal. Playlist wird als JSON nach `user://sequence.json`
-  persistiert (reine String/Float-Werte) und beim Start geladen.
+  next`; `state_changed` signal. Playlist persisted as JSON to `user://sequence.json`
+  (plain string/float values) and loaded on startup.
 
-**Geänderte Dateien**
-- `project.godot` — `Sequencer="*res://sequencer.gd"` zwischen `BgCore` und `RuntimeUI`.
-- `background_stage.gd` — Accessoren `current_scene_index()`, `scene_key_for_index(idx)`
-  (Wurzel-Knotenname via `PackedScene.get_state()` **ohne** Instanziierung — billig) und
-  `scene_index_for_key(key)`. Damit bildet der Sequencer den `scene`-Tag eines Presets
-  (= `active_scene_key`) auf einen SCENES-Index ab, um bei Bedarf dorthin zu wechseln.
-- `runtime_ui.gd` — persistente **SEQUENCE**-Sektion (`_build_sequencer_config`, startet
-  eingeklappt): Preset-Dropdown + **ADD**, höhenbegrenzte scrollbare Schrittliste
-  (`_refresh_seq_list`/`_build_seq_step`: Marker+Name+↑↓✕ und hold/trans-Spinboxen),
-  **PLAY/STOP/NEXT** + Status. `state_changed` → Liste neu (aktiver Schritt mit ▶
-  markiert); `presets_changed` → Dropdown neu.
+**Changed files**
+- `project.godot` — `Sequencer="*res://sequencer.gd"` between `BgCore` and `RuntimeUI`.
+- `background_stage.gd` — accessors `current_scene_index()`, `scene_key_for_index(idx)`
+  (root node name via `PackedScene.get_state()` **without** instantiation — cheap) and
+  `scene_index_for_key(key)`. This lets the sequencer map the `scene` tag of a preset
+  (= `active_scene_key`) to a SCENES index to switch to it when needed.
+- `runtime_ui.gd` — persistent **SEQUENCE** section (`_build_sequencer_config`, starts
+  collapsed): preset dropdown + **ADD**, height-limited scrollable step list
+  (`_refresh_seq_list`/`_build_seq_step`: marker+name+↑↓✕ and hold/trans spinboxes),
+  **PLAY/STOP/NEXT** + status. `state_changed` → rebuild list (active step marked with ▶);
+  `presets_changed` → rebuild dropdown.
 
-**Bewusste Grenzen (→ S5 / später):** nur EIN Transition-Modus (Zoom); `cross` kommt in
-S5. Keine per-Param-Keyframes/Scrubber (volle Timeline später). Beim Cross-Scene-Schritt
-wird nach `active_changed` ein Frame gewartet, damit ParamStore sein Register für die neue
-Szene neu gebaut hat, bevor die Preset-Werte greifen.
+**Deliberate limitations (→ S5 / later):** only ONE transition mode (zoom); `cross` comes in
+S5. No per-param keyframes/scrubber (full timeline later). On cross-scene step,
+one frame is waited after `active_changed` so ParamStore has rebuilt its register for the new
+scene before the preset values take effect.
 
-**Verifikation in Godot 4.6.1 (vom Nutzer durchzuführen)**
-1. Projekt lädt fehlerfrei (Sequencer parst, keine Lambda-/Parser-Fehler).
-2. ≥2 Presets speichern (S3), SEQUENCE aufklappen → je Preset **ADD** → Schritte erscheinen.
-3. **PLAY**: Playlist läuft in Schleife; gleiche Szene morpht weich, andere Szene zoomt
-   um; aktiver Schritt ist mit ▶ markiert. **STOP** hält an, **NEXT** springt manuell weiter.
-4. hold/trans je Schritt verstellen, Reihenfolge mit ↑↓ ändern, ✕ löscht — wirkt sofort.
-5. App neu starten → Playlist (aus `user://sequence.json`) ist noch da.
+**Verification in Godot 4.6.1 (to be done by user)**
+1. Project loads without errors (Sequencer parses, no lambda/parser errors).
+2. Save ≥2 presets (S3), expand SEQUENCE → **ADD** per preset → steps appear.
+3. **PLAY**: playlist loops; same scene morphs smoothly, different scene zooms
+   across; active step is marked with ▶. **STOP** pauses, **NEXT** jumps manually.
+4. Adjust hold/trans per step, change order with ↑↓, ✕ deletes — takes effect immediately.
+5. Restart app → playlist (from `user://sequence.json`) is still there.
 
-### S5 — Transition-Modi + Schema-Komfort + Particle Wave Korrektur *(erledigt; Editor-Verifikation in 4.6.1 offen)*
+### S5 — Transition Modes + Schema Comfort + Particle Wave Fix *(done; editor verification in 4.6.1 pending)*
 
-**Crossfade-Transition (G6):**
-- `background_stage.gd` — `transition_to(target_idx, mode="zoom")`: zwei Branches: "cross" = reine Fade ohne Zoom-Hub (beide Materials bei zoom=1), "zoom" = bestehender Push-Zoom
-- `sequencer.gd` — `add_step(preset, hold, trans, mode="zoom")` speichert `mode`-Feld, `_go_to()` liest es und übergibt an `_stage.transition_to(idx, mode)`
-- `runtime_ui.gd` — **SEQUENCE**: PREV-Button für Rückwärts-Navigation; pro Schritt `mode`-Dropdown (Zoom/Cross) in `_build_seq_step`; JSON-Toggle mit EXPORT/IMPORT für Playlist
+**Crossfade Transition (G6):**
+- `background_stage.gd` — `transition_to(target_idx, mode="zoom")`: two branches: "cross" = pure fade without zoom hub (both materials at zoom=1), "zoom" = existing push-zoom
+- `sequencer.gd` — `add_step(preset, hold, trans, mode="zoom")` saves `mode` field, `_go_to()` reads it and passes to `_stage.transition_to(idx, mode)`
+- `runtime_ui.gd` — **SEQUENCE**: PREV button for backward navigation; per-step `mode` dropdown (Zoom/Cross) in `_build_seq_step`; JSON toggle with EXPORT/IMPORT for playlist
 
-**Shape-Picker (G7):**
-- `particle_wave.gdshader` — neue `shape`-Uniform mit 5 Formen (Dot/Ring/Square/Star/Cross)
-- `runtime_ui.gd` — `_add_shape_picker()` baut 5-Button-HBox; `_add_control_for` routet `shape`-Uniforms dorthin
+**Shape Picker (G7):**
+- `particle_wave.gdshader` — new `shape` uniform with 5 shapes (Dot/Ring/Square/Star/Cross)
+- `runtime_ui.gd` — `_add_shape_picker()` builds 5-button HBox; `_add_control_for` routes `shape` uniforms there
 
-**Wire-Mesh für Wave:**
-- `wave_wire.gdshader` — NEU: Shader für PRIMITIVE_LINES, gleiche Wave-Vertex-Formel, `_Sync`-Gruppe (hidden von UI), nur `wire_opacity` exposed
-- `grid_builder.gd` — vollständig rewritten: `set_density()` triggert Rebuild; `_build_wire()` erstellt Sibling-Wire-Node mit IndexBuffer (horizontal+vertical Linien)
-- `particle_wave_root.gd` — NEU: Root-Script mit camera params (@exports) + `_sync_wire()` propagiert Grid-Uniforms zu Wire je Frame
+**Wire Mesh for Wave:**
+- `wave_wire.gdshader` — NEW: shader for PRIMITIVE_LINES, same wave vertex formula, `_Sync` group (hidden from UI), only `wire_opacity` exposed
+- `grid_builder.gd` — completely rewritten: `set_density()` triggers rebuild; `_build_wire()` creates sibling wire node with index buffer (horizontal+vertical lines)
+- `particle_wave_root.gd` — NEW: root script with camera params (@exports) + `_sync_wire()` propagates grid uniforms to wire per frame
 
-**Particle Wave Korrektur (Kritisch — war visuell falsch):**
+**Particle Wave Fix (Critical — was visually wrong):**
 
-HTML-Vergleich zeigte fundamentale Fehler:
-- **Grid Z nicht zentriert**: HTML baut `(j/(GH-1) - 0.5)*SPAN_Z`; Godot war `j/(GH-1)*SPAN_Z` → Gitter begann bei 0 statt zentriert
-- **Punkt-Größe linear statt perspektivisch**: HTML `120/vz`; Godot war Tiefenliner-Mix
-- **Fragment-Schwellwerte falsch**: HTML `smoothstep(0.2,0.6)` / `smoothstep(0.55,0.9)`, Crest `smoothstep(0.45,0.85)`; Godot `(0,0.55)` / `(0.55,0.95)` / `(0.6,0.95)`
-- **Glow-Formel falsch**: HTML zwei `m`-gewichtete Terme; Godot vereinfacht
-- **Flow abhängig von Speed**: HTML `uFlowT` unabhängiger Accumulator; Godot `speed*flow`
-- **Kamera Height falsch**: HTML default 3.5; Godot 4.0
-- **cam_pitch Semantik**: HTML ist Y-Koordinate des Look-Target, nicht ein Winkel
+HTML comparison revealed fundamental errors:
+- **Grid Z not centered**: HTML builds `(j/(GH-1) - 0.5)*SPAN_Z`; Godot was `j/(GH-1)*SPAN_Z` → grid started at 0 instead of centered
+- **Point size linear instead of perspective**: HTML `120/vz`; Godot was depth-linear mix
+- **Fragment thresholds wrong**: HTML `smoothstep(0.2,0.6)` / `smoothstep(0.55,0.9)`, Crest `smoothstep(0.45,0.85)`; Godot `(0,0.55)` / `(0.55,0.95)` / `(0.6,0.95)`
+- **Glow formula wrong**: HTML two `m`-weighted terms; Godot simplified
+- **Flow dependent on speed**: HTML `uFlowT` independent accumulator; Godot `speed*flow`
+- **Camera height wrong**: HTML default 3.5; Godot 4.0
+- **cam_pitch semantics**: HTML is Y coordinate of look target, not an angle
 
-**Fixes in Dateien:**
-- `particle_wave.gdshader`: Punkt-Größe `point_size * (120.0/vz)`, Fragment Thresholds `(0.2,0.6)` / `(0.55,0.9)` / Crest `(0.45,0.85)`, Glow zwei Terme mit `m`, Flow `TIME*flow*8.0` (unabhängig)
-- `wave_wire.gdshader`: gleiche Fixes; Wire-Fragment `mix(elem_a, elem_b, ...)`
+**Fixes in files:**
+- `particle_wave.gdshader`: point size `point_size * (120.0/vz)`, fragment thresholds `(0.2,0.6)` / `(0.55,0.9)` / Crest `(0.45,0.85)`, glow two terms with `m`, flow `TIME*flow*8.0` (independent)
+- `wave_wire.gdshader`: same fixes; wire fragment `mix(elem_a, elem_b, ...)`
 - `grid_builder.gd`: Grid Z: `(j/(GH-1)-0.5)*span_z`, span 60×120 → **320×420**
-- `particle_wave_root.gd`: cam_height 4.0 → **3.5**, cam_pitch Semantik: angle → Y-Koordinate, `look_at(camYaw*0.3, camPitch, 60.0)`
-- `particle_wave.tscn`: alle Defaults aktualisiert
+- `particle_wave_root.gd`: cam_height 4.0 → **3.5**, cam_pitch semantics: angle → Y coordinate, `look_at(camYaw*0.3, camPitch, 60.0)`
+- `particle_wave.tscn`: all defaults updated
 
-**Verifikation in Godot 4.6.1 (vom Nutzer durchzuführen)**
-1. Wave-Szene lädt, Gitter sichtbar (nicht mehr z_far-geklemmt), perspektivisch korrekt
-2. Partikel-Größe ändert sich mit Kamera-Tiefe (nahe Punkte größer)
-3. Farb-Gradienten von Tal (dunkel) zu Kamm (hell) weich und korrekt
-4. Glow auf Kämmen intensiv (zwei-Term-Formel)
-5. Flow-Animation läuft flüssig, unabhängig von Speed-Parameter
-6. cam_pitch-Slider bewegt Blick vertikal (Y-Koordinate), nicht Kippen
+**Verification in Godot 4.6.1 (to be done by user)**
+1. Wave scene loads, grid visible (no longer z_far-clipped), perspective correct
+2. Particle size changes with camera depth (near points larger)
+3. Color gradients from valley (dark) to crest (bright) smooth and correct
+4. Glow on crests intense (two-term formula)
+5. Flow animation runs smoothly, independent of speed parameter
+6. cam_pitch slider moves view vertically (Y coordinate), not tilting

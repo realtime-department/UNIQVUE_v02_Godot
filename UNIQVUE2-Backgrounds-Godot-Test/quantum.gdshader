@@ -1,14 +1,14 @@
 shader_type spatial;
-// Quantum — POLYGONE (Port aus studio-v026.html createQuantumModule, polyVert/polyFrag).
-// Dreiecke auf einer unregelmaessig vernetzten Roehre. Verformung radial im
-// (u,ang)-Raum via fBm-Noise + Eigendrehung (spin), additiv ueber gradient_sky.
+// Quantum — POLYGONS (port from studio-v026.html createQuantumModule, polyVert/polyFrag).
+// Triangles on an irregularly meshed tube. Deformation radially in
+// (u,ang)-space via fBm noise + self-rotation (spin), additive over gradient_sky.
 //
-// (u,ang) werden im Shader aus der unverformten Mantel-Position rekonstruiert:
+// (u,ang) are reconstructed in the shader from the undeformed surface position:
 //   u   = VERTEX.x / TUBE_LEN + 0.5
-//   ang = atan(VERTEX.z, VERTEX.y)   (Basis-Pos: y=cos(ang)*RAD, z=sin(ang)*RAD)
-// UV traegt die Pro-Face-Daten: UV.x = aFace (Hash fuer Coverage), UV.y = aCentU
-// (Face-Schwerpunkt-u fuer gleichmaessige Beleuchtung). Pro-Klon-Daten ueber
-// INSTANCE_CUSTOM: .x = uPhase (Form-Variation), .y = uCloneFade.
+//   ang = atan(VERTEX.z, VERTEX.y)   (base pos: y=cos(ang)*RAD, z=sin(ang)*RAD)
+// UV carries per-face data: UV.x = aFace (hash for coverage), UV.y = aCentU
+// (face centroid-u for uniform lighting). Per-clone data via
+// INSTANCE_CUSTOM: .x = uPhase (shape variation), .y = uCloneFade.
 render_mode unshaded, depth_draw_never, blend_add, cull_disabled;
 
 global uniform vec4 fog_color : source_color;
@@ -42,7 +42,12 @@ varying float v_vis;
 varying float v_centU;
 varying float v_clone_fade;
 
-float hash3(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+float hash3(vec3 p) {
+	uvec3 q = uvec3(ivec3(p));
+	uint x = q.x ^ (q.y * 1597334677u) ^ (q.z * 3812015801u);
+	x ^= x >> 16u; x *= 0x7feb352du; x ^= x >> 15u; x *= 0x846ca68bu; x ^= x >> 16u;
+	return float(x) * (1.0 / 4294967296.0);
+}
 float smoother(float t) { return t * t * t * (t * (t * 6.0 - 15.0) + 10.0); }
 float vnoise(vec3 p) {
 	vec3 i = floor(p);
@@ -75,8 +80,8 @@ float fbm(vec3 p) {
 	}
 	return a;
 }
-// Stage-Builtins (VERTEX/INSTANCE_CUSTOM) sind in Hilfsfunktionen NICHT verfuegbar
-// und werden als Parameter durchgereicht (phase = INSTANCE_CUSTOM.x). TIME ist global ok.
+// Stage builtins (VERTEX/INSTANCE_CUSTOM) are NOT available in helper functions
+// and are passed as parameters (phase = INSTANCE_CUSTOM.x). TIME is globally ok.
 float radialN(float u, float ang, float t, float phase) {
 	float ns = 0.018 / max(0.2, u_wavelength) * TUBE_LEN;
 	vec3 dir = vec3(0.0, cos(ang), sin(ang));
@@ -111,7 +116,7 @@ void vertex() {
 	float vr;
 	vec3 p = deform(VERTEX, INSTANCE_CUSTOM.x, vr);
 	v_rad = vr;
-	v_centU = UV.y;                         // Face-Schwerpunkt-u
+	v_centU = UV.y;                         // face centroid-u
 	v_vis = step(UV.x, u_coverage);         // aFace < coverage -> sichtbar
 	v_clone_fade = INSTANCE_CUSTOM.y;
 	vec4 mv = MODELVIEW_MATRIX * vec4(p, 1.0);

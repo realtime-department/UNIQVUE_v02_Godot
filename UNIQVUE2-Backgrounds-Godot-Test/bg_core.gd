@@ -1,28 +1,30 @@
 extends Node
-## S3: Zustandsmodell + Preset-I/O (BgCore, Autoload).
+## S3: State model + Preset I/O (BgCore, Autoload).
 ##
-## Speichert/laedt BENANNTE Presets als JSON nach `user://presets/`. Ein Preset ist
-## ein voller ParamStore-Snapshot ({key: value}) plus Szenen-Tag + Format-Version.
-## Werte werden JSON-sicher kodiert (Color/Vector als getaggte Objekte, Zahlen/Bool
-## nativ) und beim Laden wieder zu Godot-Typen dekodiert; `ParamStore.apply` zieht
-## sie danach typgerecht auf die Register-Typen.
+## Saves/loads NAMED presets as JSON to `user://presets/`. A preset is
+## a full ParamStore snapshot ({key: value}) plus scene tag + format version.
+## Values are JSON-safe encoded (Color/Vector as tagged objects, numbers/bool
+## natively) and decoded back to Godot types on load; `ParamStore.apply` then
+## applies them type-correctly to the registered types.
 ##
-## Zusaetzlich die Zustands-Utilities, die der Sequencer (S4) braucht:
-##   diff(base, other)   -> sparse Delta (nur geaenderte Keys)  [Root+Delta-Modell]
-##   resolve(root, delta)-> voller State (Root mit Delta ueberlagert)
-##   summarize(snap)     -> kurze Beschreibung
-## Interpolation zwischen States liefert `ParamStore.lerp_values`.
+## Also provides the state utilities the Sequencer (S4) needs:
+##   diff(base, other)   -> sparse delta (only changed keys)  [Root+Delta model]
+##   resolve(root, delta)-> full state (root overlaid with delta)
+##   summarize(snap)     -> short description
+## Interpolation between states is provided by `ParamStore.lerp_values`.
 ##
-## D4-Schluessel sind stabil ueber Reload/Szenenwechsel -> gespeicherte Presets
-## bleiben gueltig. `apply()` ueberspringt Keys, die in der aktiven Szene fehlen,
-## d.h. ein Wave-Preset auf der Tunnel-Szene setzt nur die geteilten style/post/
-## overlay-Werte (sauberer, fehlerfreier Teil-Recall).
+## D4 keys are stable across reload/scene changes -> saved presets
+## remain valid. `apply()` skips keys absent in the active scene,
+## i.e. a Wave preset on the Tunnel scene only sets the shared style/post/
+## overlay values (clean, error-free partial recall).
 
 signal presets_changed
+signal style_presets_changed
 
-const PRESET_DIR := "user://presets"
-const PRESET_EXT := ".json"
-const FORMAT_VERSION := 1
+const PRESET_DIR       := "user://presets"
+const STYLE_PRESET_DIR := "user://style_presets"
+const PRESET_EXT       := ".json"
+const FORMAT_VERSION   := 1
 
 var _params: Node   # ParamStore
 
@@ -34,15 +36,20 @@ func _ready() -> void:
 
 # --------------------------------------------------------------- Preset-I/O
 
-## Aktuellen Buehnenzustand fangen und als benanntes Preset ablegen.
+## Capture current stage state and save it as a named preset.
+## Style palette (style/*) is NOT saved — has its own preset function.
 func save_current(preset_name: String) -> bool:
 	if _params == null:
 		return false
-	return save_snapshot(preset_name, _params.call("capture"))
+	var snap: Dictionary = _params.call("capture")
+	for k in snap.keys():
+		if str(k).begins_with("style/"):
+			snap.erase(k)
+	return save_snapshot(preset_name, snap)
 
 
-## Ein fertiges Snapshot unter einem Namen ablegen. Gibt false bei leerem/ungueltigem
-## Namen oder Schreibfehler.
+## Save a completed snapshot under a name. Returns false on empty/invalid
+## name or write error.
 func save_snapshot(preset_name: String, snap: Dictionary) -> bool:
 	var clean := _sanitize(preset_name)
 	if clean == "":
@@ -61,8 +68,8 @@ func save_snapshot(preset_name: String, snap: Dictionary) -> bool:
 	return true
 
 
-## Preset laden UND auf die Buehne anwenden. Gibt das angewandte Snapshot zurueck
-## (leer, wenn es das Preset nicht gibt / unlesbar ist).
+## Load preset AND apply it to the stage. Returns the applied snapshot
+## (empty if the preset doesn't exist / is unreadable).
 func load_preset(preset_name: String) -> Dictionary:
 	var snap := read_preset(preset_name)
 	if not snap.is_empty() and _params != null:
@@ -70,13 +77,13 @@ func load_preset(preset_name: String) -> Dictionary:
 	return snap
 
 
-## Nur lesen + dekodieren (ohne anzuwenden) — fuer Vorschau/Sequencer.
+## Read + decode only (without applying) — for preview/sequencer.
 func read_preset(preset_name: String) -> Dictionary:
 	var doc := read_doc(preset_name)
 	return doc.get("params", {}) if doc is Dictionary else {}
 
 
-## Vollstaendiges Dokument lesen ({version, scene, params(dekodiert)}); {} bei Fehler.
+## Read complete document ({version, scene, params(decoded)}); {} on error.
 func read_doc(preset_name: String) -> Dictionary:
 	var p := _path(_sanitize(preset_name))
 	if not FileAccess.file_exists(p):
@@ -101,7 +108,65 @@ func delete_preset(preset_name: String) -> void:
 		presets_changed.emit()
 
 
-## Alphabetisch sortierte Liste der Preset-Namen (ohne Endung).
+## Save current style palette as a named style preset.
+func save_style(preset_name: String) -> bool:
+	var clean := _sanitize(preset_name)
+	if clean == "":
+		return false
+	var st := get_node_or_null("/root/Style")
+	if st == null:
+		return false
+	var f := FileAccess.open(_style_path(clean), FileAccess.WRITE)
+	if f == null:
+		return false
+	f.store_string(JSON.stringify(_encode(st.call("get_palette")), "\t"))
+	f.close()
+	style_presets_changed.emit()
+	return true
+
+
+## Load style preset and apply it to the Style autoload. Returns the loaded palette
+## (empty on error).
+func load_style(preset_name: String) -> Dictionary:
+	var clean := _sanitize(preset_name)
+	var p := _style_path(clean)
+	if not FileAccess.file_exists(p):
+		return {}
+	var f := FileAccess.open(p, FileAccess.READ)
+	if f == null:
+		return {}
+	var parsed: Variant = JSON.parse_string(f.get_as_text())
+	f.close()
+	if not (parsed is Dictionary):
+		return {}
+	var snap := _decode(parsed)
+	var st := get_node_or_null("/root/Style")
+	if st != null:
+		st.call("set_palette", snap)
+	return snap
+
+
+## Alphabetically sorted list of style preset names.
+func list_style_presets() -> Array:
+	var out: Array = []
+	var d := DirAccess.open(STYLE_PRESET_DIR)
+	if d == null:
+		return out
+	for fn in d.get_files():
+		if fn.ends_with(PRESET_EXT):
+			out.append(fn.substr(0, fn.length() - PRESET_EXT.length()))
+	out.sort()
+	return out
+
+
+func delete_style_preset(preset_name: String) -> void:
+	var p := _style_path(_sanitize(preset_name))
+	if FileAccess.file_exists(p):
+		DirAccess.remove_absolute(p)
+		style_presets_changed.emit()
+
+
+## Alphabetically sorted list of preset names (without extension).
 func list_presets() -> Array:
 	var out: Array = []
 	var d := DirAccess.open(PRESET_DIR)
@@ -118,9 +183,9 @@ func has_preset(preset_name: String) -> bool:
 	return FileAccess.file_exists(_path(_sanitize(preset_name)))
 
 
-# --------------------------------------------------------------- Zustands-Utilities (S4)
+# --------------------------------------------------------------- State Utilities (S4)
 
-## Sparse Delta: nur Keys, deren Wert von 'base' abweicht (Root+Delta-Modell).
+## Sparse delta: only keys whose value differs from 'base' (Root+Delta model).
 func diff(base: Dictionary, other: Dictionary) -> Dictionary:
 	var out := {}
 	for k in other:
@@ -129,7 +194,7 @@ func diff(base: Dictionary, other: Dictionary) -> Dictionary:
 	return out
 
 
-## Voller State: Root, mit Delta ueberlagert.
+## Full state: root overlaid with delta.
 func resolve(root: Dictionary, delta: Dictionary) -> Dictionary:
 	var out := root.duplicate(true)
 	for k in delta:
@@ -146,17 +211,23 @@ func summarize(snap: Dictionary) -> String:
 func _ensure_dir() -> void:
 	if not DirAccess.dir_exists_absolute(PRESET_DIR):
 		DirAccess.make_dir_recursive_absolute(PRESET_DIR)
+	if not DirAccess.dir_exists_absolute(STYLE_PRESET_DIR):
+		DirAccess.make_dir_recursive_absolute(STYLE_PRESET_DIR)
 
 
 func _path(clean: String) -> String:
 	return PRESET_DIR + "/" + clean + PRESET_EXT
 
 
+func _style_path(clean: String) -> String:
+	return STYLE_PRESET_DIR + "/" + clean + PRESET_EXT
+
+
 func _sanitize(preset_name: String) -> String:
 	return preset_name.strip_edges().validate_filename()
 
 
-# {key: value} -> JSON-sicheres {key: enc}. Color/Vector getaggt, Rest nativ.
+# {key: value} -> JSON-safe {key: enc}. Color/Vector tagged, rest natively.
 func _encode(snap: Dictionary) -> Dictionary:
 	var out := {}
 	for k in snap:
@@ -171,7 +242,7 @@ func _enc_val(v: Variant) -> Variant:
 		return {"_t": "v2", "v": [v.x, v.y]}
 	if v is Vector3:
 		return {"_t": "v3", "v": [v.x, v.y, v.z]}
-	return v   # float/int/bool — JSON-nativ
+	return v   # float/int/bool — JSON-native
 
 
 func _decode(d: Dictionary) -> Dictionary:

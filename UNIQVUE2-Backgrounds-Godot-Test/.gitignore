@@ -4,3 +4,6 @@
 
 # Backup files
 *.bak
+
+# oh-my-claudecode session state
+.omc/

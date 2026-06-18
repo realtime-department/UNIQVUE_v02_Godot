@@ -1,26 +1,27 @@
 extends Node
-## S4: Sequencer (Autoload) — Preset-Playlist + Playback.
+## S4: Sequencer (Autoload) — Preset playlist + Playback.
 ##
-## Eine Playlist ist eine geordnete Liste von Schritten:
+## A playlist is an ordered list of steps:
 ##   {preset: String, hold: float (s), trans: float (s)}
-## play() laeuft die Liste in Schleife durch. Pro Schritt: 'hold' Sekunden halten,
-## dann ueber 'trans' Sekunden zum NAECHSTEN Schritt ueberblenden —
-##   - gleiche Szene  -> Parameter-Morph (ParamStore.apply_lerp A->B),
-##   - andere Szene   -> die vorhandene Zoom-Transition (BackgroundStage.transition_to),
-##                       danach werden die Preset-Werte auf die neue Szene angewandt.
+## play() loops through the list. Per step: hold for 'hold' seconds,
+## then blend to the NEXT step over 'trans' seconds —
+##   - same scene    -> parameter morph (ParamStore.apply_lerp A->B),
+##   - different scene -> the existing zoom transition (BackgroundStage.transition_to),
+##                        then preset values are applied to the new scene.
 ##
-## Abbruch/Neustart laufen ueber einen Generationszaehler `_gen`: jede neue Operation
-## (play/stop/next) erhoeht ihn; eine laufende Coroutine bricht ab, sobald ihre
-## gefangene Generation nicht mehr die aktuelle ist. `_playing` ist reine UI-Anzeige.
+## Abort/restart use a generation counter `_gen`: each new operation
+## (play/stop/next) increments it; a running coroutine aborts once its
+## captured generation is no longer current. `_playing` is pure UI display.
 ##
-## Die Playlist wird als JSON nach `user://sequence.json` persistiert (Schritte sind
-## reine String/Float-Werte, kein Typ-Tagging noetig) und beim Start geladen.
+## The playlist is persisted as JSON to `user://sequence.json` (steps are
+## plain string/float values, no type tagging needed) and loaded on startup.
 
-signal state_changed   # playing/idx/Liste geaendert -> UI aktualisiert sich
+signal state_changed   # playing/idx/list changed -> UI updates itself
 
 const SEQ_PATH := "user://sequence.json"
 const DEF_HOLD := 3.0
 const DEF_TRANS := 1.2
+const VALID_STEP_KEYS := ["preset", "hold", "trans", "mode"]
 
 var _params: Node   # ParamStore
 var _stage: Node    # BackgroundStage
@@ -29,7 +30,7 @@ var _core: Node     # BgCore
 var _steps: Array = []   # [{preset, hold, trans}]
 var _idx := 0
 var _playing := false
-var _gen := 0            # erhoeht bei play/stop/next -> bricht alte Coroutinen ab
+var _gen := 0            # incremented on play/stop/next -> aborts old coroutines
 
 
 func _ready() -> void:
@@ -39,7 +40,7 @@ func _ready() -> void:
 	_load()
 
 
-# --------------------------------------------------------------- Playlist-API
+# --------------------------------------------------------------- Playlist API
 
 func step_count() -> int:
 	return _steps.size()
@@ -89,6 +90,9 @@ func move_step(i: int, dir: int) -> void:
 func set_step_value(i: int, key: String, value: Variant) -> void:
 	if i < 0 or i >= _steps.size():
 		return
+	if key not in VALID_STEP_KEYS:
+		push_warning("sequencer: unknown step key '%s'" % key)
+		return
 	_steps[i][key] = value
 	_save()
 
@@ -114,11 +118,11 @@ func play() -> void:
 
 func stop() -> void:
 	_playing = false
-	_gen += 1   # laufende Coroutine bricht beim naechsten Check ab
+	_gen += 1   # running coroutine aborts on next check
 	state_changed.emit()
 
 
-## Manuell einen Schritt weiter (auch im Stillstand): blendet zum naechsten Preset.
+## Manually advance one step (also while stopped): blends to the next preset.
 func next() -> void:
 	if _steps.is_empty():
 		return
@@ -127,7 +131,7 @@ func next() -> void:
 	var gen := _gen
 	_playing = false
 	var nxt := (_idx + 1) % _steps.size()
-	var trans := maxf(0.0, float(_steps[_idx].get("trans", DEF_TRANS)))
+	var trans := maxf(0.0, float(_steps[nxt].get("trans", DEF_TRANS)))
 	await _go_to(nxt, trans, gen)
 	if gen != _gen:
 		return
@@ -138,7 +142,7 @@ func next() -> void:
 	state_changed.emit()
 
 
-## Manuell einen Schritt zurueck.
+## Manually go back one step.
 func prev() -> void:
 	if _steps.is_empty():
 		return
@@ -147,7 +151,7 @@ func prev() -> void:
 	var gen := _gen
 	_playing = false
 	var prv := (_idx - 1 + _steps.size()) % _steps.size()
-	var trans := maxf(0.0, float(_steps[_idx].get("trans", DEF_TRANS)))
+	var trans := maxf(0.0, float(_steps[prv].get("trans", DEF_TRANS)))
 	await _go_to(prv, trans, gen)
 	if gen != _gen:
 		return
@@ -158,11 +162,11 @@ func prev() -> void:
 	state_changed.emit()
 
 
-# --------------------------------------------------------------- Playback-Coroutine
+# --------------------------------------------------------------- Playback coroutine
 
 func _run(gen: int) -> void:
 	state_changed.emit()
-	await _apply_step(_idx, gen)   # Startschritt hart setzen (kein Morph)
+	await _apply_step(_idx, gen)   # set start step immediately (no morph)
 	while gen == _gen:
 		var hold := maxf(0.0, float(_steps[_idx].get("hold", 0.0)))
 		await _wait(hold, gen)
@@ -188,7 +192,7 @@ func _wait(seconds: float, gen: int) -> void:
 		t += get_process_delta_time()
 
 
-# Schritt i sofort anwenden (kein Morph) — fuer den Startschritt.
+# Apply step i immediately (no morph) — for the start step.
 func _apply_step(i: int, gen: int) -> void:
 	var doc := _read(i)
 	if doc.is_empty():
@@ -200,7 +204,7 @@ func _apply_step(i: int, gen: int) -> void:
 		_params.call("apply", doc.get("params", {}))
 
 
-# Von der aktuellen Buehne zu Schritt nxt ueberblenden (Szenenwechsel ODER Morph).
+# Blend from current stage to step nxt (scene switch OR morph).
 func _go_to(nxt: int, trans: float, gen: int) -> void:
 	var doc := _read(nxt)
 	if doc.is_empty():
@@ -209,14 +213,14 @@ func _go_to(nxt: int, trans: float, gen: int) -> void:
 	var snap: Dictionary = doc.get("params", {})
 	var mode := str(_steps[nxt].get("mode", "zoom")) if nxt < _steps.size() else "zoom"
 	if scene_key != "" and scene_key != _cur_scene():
-		# Andere Szene: Transition (Zoom oder Cross), danach Preset-Werte setzen.
+		# Different scene: transition (zoom or cross), then apply preset values.
 		await _ensure_scene(scene_key, trans, gen, mode)
 		if gen != _gen:
 			return
 		if _params != null:
 			_params.call("apply", snap)
 	else:
-		# Gleiche Szene: Parameter-Morph A->B.
+		# Same scene: parameter morph A->B.
 		await _morph(snap, trans, gen)
 
 
@@ -234,10 +238,10 @@ func _morph(b: Dictionary, trans: float, gen: int) -> void:
 			return
 		t += get_process_delta_time()
 		_params.call("apply_lerp", a, b, minf(t / trans, 1.0))
-	_params.call("apply", b)   # exakt auf Ziel einrasten
+	_params.call("apply", b)   # snap exactly to target
 
 
-# Sicherstellen, dass die zum Preset getaggte Szene aktiv ist.
+# Ensure the scene tagged in the preset is active.
 func _ensure_scene(scene_key: String, trans: float, gen: int, mode: String = "zoom") -> void:
 	if scene_key == "" or _stage == null:
 		return
@@ -249,9 +253,20 @@ func _ensure_scene(scene_key: String, trans: float, gen: int, mode: String = "zo
 	if trans > 0.0:
 		_stage.set("transition_time", trans)
 	_stage.call("transition_to", idx, mode)
-	await _stage.active_changed
-	# Ein Frame, damit ParamStore sein Register fuer die neue Szene neu gebaut hat,
-	# bevor wir die Preset-Werte anwenden.
+	# Timeout-guard: active_changed may never fire if stage is busy at call time.
+	var _done := false
+	var _cb := func(_n: Node) -> void: _done = true
+	_stage.connect("active_changed", _cb, CONNECT_ONE_SHOT)
+	var _t := 0.0
+	while not _done and _t < maxf(trans + 2.0, 5.0) and gen == _gen:
+		await get_tree().process_frame
+		_t += get_process_delta_time()
+	if not _done and _stage.is_connected("active_changed", _cb):
+		_stage.disconnect("active_changed", _cb)
+	if gen != _gen:
+		return
+	# One frame so ParamStore has rebuilt its register for the new scene
+	# before we apply the preset values.
 	await get_tree().process_frame
 
 
@@ -265,7 +280,7 @@ func _read(i: int) -> Dictionary:
 	return _core.call("read_doc", str(_steps[i].get("preset", "")))
 
 
-# --------------------------------------------------------------- Persistenz
+# --------------------------------------------------------------- Persistence
 
 func _save() -> void:
 	var f := FileAccess.open(SEQ_PATH, FileAccess.WRITE)

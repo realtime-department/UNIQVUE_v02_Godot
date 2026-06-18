@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode unshaded, depth_draw_never, blend_add, cull_disabled;
+render_mode unshaded, depth_draw_never, blend_add, cull_disabled, use_point_size;
 
 global uniform vec4 fog_color : source_color;
 global uniform vec4 elem_a    : source_color;

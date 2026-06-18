@@ -38,6 +38,7 @@ project/assembly_name="UNIQVUE2-Backgrounds-Godot-Test"
 
 [rendering]
 
+textures/default_filters/anisotropic_filtering_level=4
 environment/defaults/default_clear_color=Color(0.019, 0.023, 0.027, 1)
 
 [shader_globals]

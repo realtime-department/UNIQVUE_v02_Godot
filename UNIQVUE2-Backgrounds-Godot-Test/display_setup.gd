@@ -1,30 +1,30 @@
 extends Node
-## Virtuelle Buehnen-/Display-Konfiguration. Als Autoload registriert (siehe
-## project.godot) - MUSS vor BackgroundStage stehen, damit dessen SubViewports
-## gleich auf die richtige Groesse initialisiert werden.
+## Virtual stage/display configuration. Registered as Autoload (see
+## project.godot) - MUST come before BackgroundStage so its SubViewports
+## are initialized to the correct size right away.
 ##
-## Beim Start:
-##   - 1 Bildschirm   -> normales, gerahmtes Fenster
-##   - 2+ Bildschirme -> randloses Fenster ueber den gesamten erweiterten Desktop
-##   - Erzwingen per Kommandozeile: --span  bzw.  --windowed
+## On startup:
+##   - 1 screen    -> normal, framed window
+##   - 2+ screens -> borderless window over the entire extended desktop
+##   - Force via command line: --span  or  --windowed
 ##
-## Zur Laufzeit ueber das RuntimeUI-Panel ("STAGE") steuerbar:
-##   - virtuelles Raster (Spalten x Zeilen, Schirm-Pixel) frei einstellen
-##   - PREVIEW: pro virtuellem Schirm EIN eigenes Fenster, das genau seinen
-##              Ausschnitt des durchgehenden Bildes zeigt -> Wand inkl. Naht
-##              (Spalt zwischen den Fenstern = Bezel) auf dem Dev-Rechner simulieren
-##   - SPAN:    randlos ueber die real angeschlossenen Schirme
-##   - WINDOW:  normales Fenster (schliesst die Vorschaufenster)
+## Controllable at runtime via the RuntimeUI panel ("STAGE"):
+##   - virtual grid (columns x rows, screen pixels) freely adjustable
+##   - PREVIEW: one dedicated window per virtual screen showing exactly its
+##              slice of the continuous image -> wall incl. seam
+##              (gap between windows = bezel) simulated on the dev machine
+##   - SPAN:    borderless over the physically connected screens
+##   - WINDOW:  normal window (closes the preview windows)
 
 enum Mode { WINDOWED, PREVIEW, SPAN }
 
-# Virtuelles Showraster (vom RuntimeUI gesetzt). screen_w/h = Pixel je Einzelschirm.
+# Virtual show grid (set by RuntimeUI). screen_w/h = pixels per individual screen.
 var cols := 3
 var rows := 1
 var screen_w := 3840
 var screen_h := 2160
 
-# Canvas-Shader: zeigt je Fenster genau eine Rasterzelle des Gesamtbildes.
+# Canvas shader: shows exactly one grid cell of the full image per window.
 const SLICE_SHADER := "shader_type canvas_item;
 uniform vec2 cell = vec2(1.0);
 uniform vec2 offset = vec2(0.0);
@@ -49,14 +49,14 @@ func _ready() -> void:
 		span_screens()
 	else:
 		restore_window()
-		print("Display-Setup: Einzelschirm -> Fenster. Steuerung im Panel unter STAGE.")
+		print("Display setup: single screen -> windowed. Control in panel under STAGE.")
 
 
-# --------------------------------------------------------------- Oeffentliche API
-# (vom RuntimeUI-Panel genutzt)
+# --------------------------------------------------------------- Public API
+# (used by the RuntimeUI panel)
 
-## Raster/Schirm-Pixel uebernehmen. (Wirkt sich beim naechsten PREVIEW/SPAN aus -
-## eine laufende Vorschau wird NICHT bei jedem Tastendruck neu gebaut.)
+## Apply grid/screen pixels. (Takes effect on next PREVIEW/SPAN —
+## a running preview is NOT rebuilt on every key press.)
 func configure(c: int, r: int, sw: int, sh: int) -> void:
 	cols = maxi(1, c)
 	rows = maxi(1, r)
@@ -77,8 +77,8 @@ func mode() -> int:
 	return _mode
 
 
-## Randloses Fenster ueber das Vereinigungsrechteck ALLER real angeschlossenen
-## Schirme - passt sich jeder Zahl/Anordnung automatisch an.
+## Borderless window over the union rect of ALL physically connected
+## screens — adapts automatically to any count/arrangement.
 func span_screens() -> void:
 	close_preview()
 	var n := DisplayServer.get_screen_count()
@@ -93,7 +93,7 @@ func span_screens() -> void:
 	win.position = rect.position
 	win.size = rect.size
 	_mode = Mode.SPAN
-	print("Display-Setup: %d Schirm(e) -> Span %s @ %s" % [n, rect.size, rect.position])
+	print("Display setup: %d screen(s) -> span %s @ %s" % [n, rect.size, rect.position])
 	_save_config()
 
 
@@ -107,18 +107,18 @@ func restore_window() -> void:
 	_save_config()
 
 
-# ------------------------------------------------------- Multi-Window-Vorschau
+# ------------------------------------------------------- Multi-window preview
 
-## Oeffnet pro virtuellem Schirm ein eigenes Fenster, das genau seinen Ausschnitt
-## des durchgehenden Bildes zeigt. Die Buehne wird dazu in Wand-Aufloesung
-## gerendert; der Spalt zwischen den Fenstern simuliert die Bezel-Naht.
+## Opens one dedicated window per virtual screen showing exactly its slice
+## of the continuous image. The stage is rendered at wall resolution;
+## the gap between windows simulates the bezel seam.
 func open_preview() -> void:
 	close_preview()
 	var stage := get_node_or_null("/root/BackgroundStage")
 	if stage == null:
 		return
 
-	# Anzeigegroesse je Schirmfenster: in die aktuelle Schirmbreite einpassen.
+	# Display size per screen window: fit into the current screen width.
 	var scr := DisplayServer.window_get_current_screen()
 	var ss := DisplayServer.screen_get_size(scr)
 	var gap := 10
@@ -126,11 +126,11 @@ func open_preview() -> void:
 	slice_w = maxi(160, slice_w)
 	var slice_h := maxi(90, int(round(float(slice_w) * float(screen_h) / float(screen_w))))
 
-	# Buehne in der Gesamt-(Wand-)Aufloesung rendern lassen -> korrektes
-	# Gesamt-Seitenverhaeltnis; jede Zelle ist genau slice_w x slice_h gross.
+	# Render the stage at full (wall) resolution -> correct
+	# total aspect ratio; each cell is exactly slice_w x slice_h pixels.
 	stage.call("set_render_size_override", Vector2i(cols * slice_w, rows * slice_h))
 
-	# Native OS-Fenster erlauben (statt im Hauptfenster eingebettet).
+	# Allow native OS windows (instead of embedded in the main window).
 	_prev_embed = get_tree().root.gui_embed_subwindows
 	get_tree().root.gui_embed_subwindows = false
 
@@ -165,12 +165,12 @@ func open_preview() -> void:
 			w.visible = true
 			_preview_windows.append(w)
 
-	# Bei Szenenwechsel zeigt die aktive Ebene eine neue Textur -> nachziehen.
+	# On scene change the active layer shows a new texture -> update it.
 	if not stage.is_connected("active_changed", _on_preview_active):
 		stage.connect("active_changed", _on_preview_active)
 
 	_mode = Mode.PREVIEW
-	print("Display-Setup: Vorschau %dx%d Fenster, Zelle %dx%d" % [cols, rows, slice_w, slice_h])
+	print("Display setup: preview %dx%d windows, cell %dx%d" % [cols, rows, slice_w, slice_h])
 	_save_config()
 
 

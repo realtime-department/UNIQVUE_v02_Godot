@@ -1,10 +1,10 @@
 extends CanvasLayer
-## Echtzeit-Performance-Monitor mit Hardware-Metriken.
-## F1: ein-/ausblenden. Titelzeile: ziehen. Mausrad: Schrift skalieren.
+## Real-time performance monitor with hardware metrics.
+## F1: show/hide. Title bar: drag. Mouse wheel: scale font.
 ##
-## Godot-Metriken: FPS/Frame-Zeit (Rolling-Window 120), Render-Stats, Speicher.
-## HW-Metriken (Background-Thread, alle 2 s): GPU (nvidia-smi), CPU + RAM
-## (PowerShell/WMI), CPU-Temperatur (WMI Thermal Zone, best-effort).
+## Godot metrics: FPS/frame time (rolling window 120), render stats, memory.
+## HW metrics (background thread, every 2 s): GPU (nvidia-smi), CPU + RAM
+## (PowerShell/WMI), CPU temperature (WMI thermal zone, best-effort).
 
 const HISTORY       := 120
 const GRAPH_W       := 38
@@ -18,16 +18,17 @@ var _font_size := 10
 var _dragging  := false
 var _drag_off  := Vector2.ZERO
 
-# --- Frame-Zeit-Ringpuffer ---
+# --- Frame time ring buffer ---
 var _ft:   PackedFloat32Array
 var _head  := 0
 var _count := 0
 
-# --- HW-Daten (Thread) ---
+# --- HW data (thread) ---
 var _mutex  := Mutex.new()
 var _thread: Thread = null
 var _hw     := {}
-var _ptimer := POLL_INTERVAL   # sofort beim Start abfragen
+var _ptimer := POLL_INTERVAL   # query immediately on startup
+var _cancel := false           # set in _exit_tree to skip new OS.execute calls
 
 
 func _ready() -> void:
@@ -120,7 +121,9 @@ func _start_hw_poll() -> void:
 
 func _hw_poll_thread() -> void:
 	var r := _blank_hw()
+	if _cancel: return
 	_do_gpu(r)
+	if _cancel: return
 	_do_cpu_ram(r)
 	_mutex.lock()
 	_hw = r
@@ -140,17 +143,17 @@ func _do_gpu(r: Dictionary) -> void:
 		var p := _csv(out[0] as String)
 		if p.size() >= 9:
 			r["gpu_name"]  = p[0].replace("NVIDIA GeForce ", "").replace("NVIDIA ", "")
-			r["gpu_load"]  = p[1].to_float()
-			r["gpu_mload"] = p[2].to_float()
-			r["gpu_temp"]  = p[3].to_float()
-			r["gpu_clk"]   = p[4].to_float()
-			r["gpu_mclk"]  = p[5].to_float()
-			r["gpu_pwr"]   = p[6].to_float()
-			r["gpu_vused"] = int(p[7].to_float() * 1048576.0)   # MiB → bytes
-			r["gpu_vtot"]  = int(p[8].to_float() * 1048576.0)
+			r["gpu_load"]  = p[1].to_float() if p[1].is_valid_float() else -1.0
+			r["gpu_mload"] = p[2].to_float() if p[2].is_valid_float() else -1.0
+			r["gpu_temp"]  = p[3].to_float() if p[3].is_valid_float() else -1.0
+			r["gpu_clk"]   = p[4].to_float() if p[4].is_valid_float() else -1.0
+			r["gpu_mclk"]  = p[5].to_float() if p[5].is_valid_float() else -1.0
+			r["gpu_pwr"]   = p[6].to_float() if p[6].is_valid_float() else -1.0
+			r["gpu_vused"] = int(p[7].to_float() * 1048576.0) if p[7].is_valid_float() else -1
+			r["gpu_vtot"]  = int(p[8].to_float() * 1048576.0) if p[8].is_valid_float() else -1
 			return
 
-	# Fallback: WMI-Basisinfo fuer AMD/Intel (kein Auslastungs-/Temperatur-Zugriff)
+	# Fallback: WMI basic info for AMD/Intel (no load/temperature access)
 	var fb: Array = []
 	var cmd := ("$g=Get-CimInstance Win32_VideoController|Select -First 1;"
 		+ "\"$($g.Name)|$($g.AdapterRAM)\"")
@@ -256,24 +259,26 @@ func _csv(raw: String) -> PackedStringArray:
 # ------------------------------------------------------------------ Render
 
 func _draw() -> void:
+	if _count == 0:
+		return
 	_mutex.lock()
 	var hw := _hw.duplicate()
 	_mutex.unlock()
 
-	# Frame-Zeit-Statistik
+	# Frame time statistics
 	var cur    := _ft[(_head - 1 + HISTORY) % HISTORY]
 	var ft_min := INF
 	var ft_max := 0.0
 	var ft_sum := 0.0
 	for i in range(_count):
-		var v := _ft[(_head - 1 - i + HISTORY * 2) % HISTORY]
+		var v := _ft[posmod(_head - 1 - i, HISTORY)]
 		if v < ft_min: ft_min = v
 		if v > ft_max: ft_max = v
 		ft_sum += v
 	var ft_avg := ft_sum / float(_count)
 	var sq := 0.0
 	for i in range(_count):
-		var d := _ft[(_head - 1 - i + HISTORY * 2) % HISTORY] - ft_avg
+		var d := _ft[posmod(_head - 1 - i, HISTORY)] - ft_avg
 		sq += d * d
 	var sigma := sqrt(sq / float(_count))
 
@@ -295,13 +300,13 @@ func _draw() -> void:
 	var aud   := Performance.get_monitor(Performance.AUDIO_OUTPUT_LATENCY) * 1000.0
 	var vp    := get_viewport().get_visible_rect().size
 
-	# Frame-Zeit-Graph
+	# Frame time graph
 	var graph := ""
 	for i in range(GRAPH_W):
-		var gi := (_head - 1 - (GRAPH_W - 1 - i) + HISTORY * 100) % HISTORY
+		var gi := posmod(_head - 1 - (GRAPH_W - 1 - i), HISTORY)
 		graph  += BAR[int(clampf(_ft[gi] / 33.33, 0.0, 1.0) * 7.0)]
 
-	# Abgeleitete Werte
+	# Derived values
 	var fps_lo  := 1000.0 / maxf(ft_max, 0.001)
 	var fps_avg := 1000.0 / maxf(ft_avg, 0.001)
 	var gn      : String = hw.get("gpu_name", "")
@@ -310,7 +315,7 @@ func _draw() -> void:
 
 	var s := ""
 
-	# FPS / Frame-Zeit
+	# FPS / Frame time
 	s += "─ FPS / FRAME TIME ─────────────────────────\n"
 	s += "fps  %7.1f  │  cur    %7.2f ms\n" % [fps,    cur   ]
 	s += "lo   %7.1f  │  hi     %7.2f ms\n" % [fps_lo, ft_max]
@@ -421,13 +426,14 @@ func _input(event: InputEvent) -> void:
 		if _panel != null:
 			_panel.visible = not _panel.visible
 			if _panel.visible:
-				_ptimer = POLL_INTERVAL   # sofort refreshen
+				_ptimer = POLL_INTERVAL   # refresh immediately
 		get_viewport().set_input_as_handled()
 
 
 # ------------------------------------------------------------------ Cleanup
 
 func _exit_tree() -> void:
+	_cancel = true
 	if _thread != null:
 		_thread.wait_to_finish()
 		_thread = null
