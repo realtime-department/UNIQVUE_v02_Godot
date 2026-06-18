@@ -267,6 +267,8 @@ func _write_matrices() -> void:
 
 func _update_particles() -> void:
 	_p_mesh.clear_surfaces()
+	if speed <= 0.0:
+		return
 	var n := mini(PMAX, int(float(PMAX) * (particles / 3.0)))
 	if n <= 0:
 		return

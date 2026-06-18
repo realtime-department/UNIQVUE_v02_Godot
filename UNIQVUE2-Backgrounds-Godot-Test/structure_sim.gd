@@ -313,6 +313,9 @@ func _update_sky_panels() -> void:
 
 
 func _update_particles(dt: float) -> void:
+	if speed <= 0.0:
+		_p_mesh.clear_surfaces()
+		return
 	var n := mini(PCOUNT, int(float(PCOUNT) * particles))
 	if n <= 0:
 		_p_mesh.clear_surfaces()
@@ -320,7 +323,7 @@ func _update_particles(dt: float) -> void:
 	# Fill persistent buffers, then upload once via add_surface_from_arrays —
 	# avoids PCOUNT per-vertex ImmediateMesh calls every frame (see plexus_sim._upload_meshes).
 	for i in range(n):
-		_pz[i] += _pspd[i] * dt
+		_pz[i] += _pspd[i] * speed * dt
 		if _pz[i] > CAM_Z + 200.0:
 			_px[i] = (_rand(float(i) * 1.1 + _travel * 0.013) * 2.0 - 1.0) * 1800.0 * _wfac
 			_py[i] = 10.0 + _rand(float(i) * 2.2 + _travel * 0.011) * 420.0

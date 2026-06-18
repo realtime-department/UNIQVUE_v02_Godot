@@ -49,6 +49,11 @@ func _sync_wire() -> void:
 	var gm := grid.material_override as ShaderMaterial
 	if gm == null:
 		return
+	var show: bool = float(gm.get_shader_parameter("speed")) > 0.0
+	grid.visible = show
+	var grid_top := get_node_or_null("GridTop") as MeshInstance3D
+	if grid_top:
+		grid_top.visible = show
 	for wire_name in ["GridWire", "GridTopWire"]:
 		var wire := get_node_or_null(wire_name) as MeshInstance3D
 		if wire == null:

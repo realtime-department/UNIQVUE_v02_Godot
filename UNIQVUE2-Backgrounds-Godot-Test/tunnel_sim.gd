@@ -120,6 +120,9 @@ func _update_camera() -> void:
 	_camera.fov = cam_fov
 
 func _simulate(dt: float) -> void:
+	if speed <= 0.0:
+		_upload_meshes(0)
+		return
 	# Farben zentral aus STYLE (fern/Tal -> nah/Glanz).
 	var color_far: Color = Style.get_color("fog_color")
 	var color_mid: Color = Style.get_color("elem_a")

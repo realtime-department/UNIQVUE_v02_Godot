@@ -332,7 +332,7 @@ func _update_all() -> void:
 	_tube.rotation.z = PI * 0.5 - deg_to_rad(orient_deg)
 	_poly.visible = show_poly
 	_edges.visible = show_edges
-	_points.visible = show_points
+	_points.visible = show_points and speed > 0.0
 
 	var count := clampf(clones, 0.0001, float(MAX_CLONES))
 	var mid := (count - 1.0) * 0.5
