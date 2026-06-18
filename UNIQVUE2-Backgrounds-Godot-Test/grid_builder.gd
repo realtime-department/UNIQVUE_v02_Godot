@@ -104,9 +104,19 @@ func _build_wire() -> void:
 		wire = MeshInstance3D.new()
 		wire.name = wire_name
 		wire.transform = transform  # inherit Y-flip (or identity) from this grid node
-		var wmat := ShaderMaterial.new()
-		wmat.shader = _WIRE_SHADER
-		wmat.set_shader_parameter("wire_opacity", 0.35)
+		# Reuse an existing sibling wire material so both grids share one RID —
+		# prevents the RuntimeUI from showing a duplicate wire_opacity slider.
+		var wmat: ShaderMaterial = null
+		for sib in parent.get_children():
+			if sib is MeshInstance3D and str(sib.name).ends_with("Wire"):
+				var sm := (sib as MeshInstance3D).material_override
+				if sm is ShaderMaterial and (sm as ShaderMaterial).shader == _WIRE_SHADER:
+					wmat = sm as ShaderMaterial
+					break
+		if wmat == null:
+			wmat = ShaderMaterial.new()
+			wmat.shader = _WIRE_SHADER
+			wmat.set_shader_parameter("wire_opacity", 0.35)
 		wire.material_override = wmat
 		parent.add_child(wire)
 

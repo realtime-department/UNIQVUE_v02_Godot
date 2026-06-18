@@ -361,17 +361,20 @@ func _infer_type(v: Variant) -> int:
 
 func _find_shader_materials(root: Node) -> Array:
 	var out: Array = []
-	_collect_shader_materials(root, out)
+	_collect_shader_materials(root, out, {})
 	return out
 
 
-func _collect_shader_materials(node: Node, out: Array) -> void:
+func _collect_shader_materials(node: Node, out: Array, seen: Dictionary) -> void:
 	if node is GeometryInstance3D:
 		var gi := node as GeometryInstance3D
 		if gi.material_override is ShaderMaterial:
-			out.append([node.name, gi.material_override])
+			var rid := gi.material_override.get_rid()
+			if not seen.has(rid):
+				seen[rid] = true
+				out.append([node.name, gi.material_override])
 	for c in node.get_children():
-		_collect_shader_materials(c, out)
+		_collect_shader_materials(c, out, seen)
 
 
 # Master-Post-Environment (S1); faellt auf die Szenen-Env zurueck.

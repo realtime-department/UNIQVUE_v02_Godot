@@ -36,9 +36,9 @@ extends Node3D
 @export_range(0.0, 2.0, 0.05)     var fog_density: float = 1.10
 
 @export_group("Kamera")
-@export_range(35.0, 110.0, 1.0) var cam_fov: float = 62.0
 @export_range(-180.0, 180.0, 1.0) var cam_roll: float = 0.0
 @export_range(0.0, 8.0, 0.2)   var cam_sway: float = 0.0
+@export_range(35.0, 110.0, 1.0) var cam_fov: float = 62.0
 
 const COLS := 10
 const ROWS := 150

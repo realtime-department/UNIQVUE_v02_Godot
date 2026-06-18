@@ -13,7 +13,6 @@ extends Node3D
 
 @export_group("Welt & Flug")
 @export_range(0.0, 2.0, 0.02) var speed: float = 0.7
-@export_range(24.0, 70.0, 1.0) var cam_fov: float = 38.0
 
 @export_group("Material")
 @export_range(0.4, 3.0, 0.05) var exposure: float = 1.4
@@ -29,6 +28,9 @@ extends Node3D
 @export_group("Tiefe & Fog")
 @export_range(1.0, 5.0, 0.1) var fade_start: float = 3.2
 @export_range(3.0, 9.0, 0.1) var fade_end: float = 6.6
+
+@export_group("Kamera")
+@export_range(24.0, 70.0, 1.0) var cam_fov: float = 38.0
 
 const NBLOCKS  := 8
 const COLS     := 9

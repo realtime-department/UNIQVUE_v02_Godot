@@ -16,7 +16,9 @@ uniform float light_angle  : hint_range(0.0, 180.0)  = 74.0;
 uniform float opacity      : hint_range(0.2, 1.5)    = 1.0;
 uniform float fog_start    : hint_range(60.0, 1200.0) = 140.0;
 uniform float fog_density  : hint_range(0.0, 2.0)    = 1.1;
+group_uniforms _Sync;
 uniform float z_far        = 795.0;
+group_uniforms;
 
 varying vec3  v_n;
 varying vec3  v_view;

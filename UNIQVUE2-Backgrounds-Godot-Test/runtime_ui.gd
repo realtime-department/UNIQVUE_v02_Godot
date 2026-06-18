@@ -231,10 +231,19 @@ func _populate(root: Node) -> void:
 		_add_object_props(_rows, root)
 
 	# 2) Shader-Uniforms aller ShaderMaterials in der Szene.
-	for entry in _find_shader_materials(root):
+	# @export-Variablen sind bereits unter Schritt 1 sichtbar; gleichnamige
+	# Shader-Uniforms werden uebersprungen (wuerden nichts tun — _process()
+	# schreibt sie jeden Frame mit dem @export-Wert ueber).
+	var exported_names := {}
+	if root.get_script() != null:
+		for prop in root.get_property_list():
+			var _usage := int(prop["usage"])
+			if _usage & PROPERTY_USAGE_SCRIPT_VARIABLE and _usage & PROPERTY_USAGE_EDITOR:
+				exported_names[str(prop["name"])] = true
+	for entry in ParamStore._find_shader_materials(root):
 		var node_name: String = str(entry[0])
 		var mat: ShaderMaterial = entry[1]
-		_add_shader_uniforms(_rows, node_name, mat)
+		_add_shader_uniforms(_rows, node_name, mat, exported_names)
 
 	# 3) Globale POST-Parameter. Seit S1 wirkt Post zentral ueber den Master-
 	#    Composite (BackgroundStage.post_environment); faellt auf die Szenen-Env
@@ -332,37 +341,10 @@ func _populate(root: Node) -> void:
 				child.queue_free()
 
 
-# --------------------------------------------------------------- Auto-Discovery
-
-func _find_shader_materials(root: Node) -> Array:
-	var out: Array = []
-	_collect_shader_materials(root, out)
-	return out
-
-
-func _collect_shader_materials(node: Node, out: Array) -> void:
-	if node is GeometryInstance3D:
-		var gi := node as GeometryInstance3D
-		if gi.material_override is ShaderMaterial:
-			out.append([node.name, gi.material_override])
-	for c in node.get_children():
-		_collect_shader_materials(c, out)
-
-
 func _find_environment(root: Node) -> Environment:
-	var we := _find_world_env(root)
+	var we := ParamStore._find_world_env(root)
 	if we != null:
 		return we.environment
-	return null
-
-
-func _find_world_env(node: Node) -> WorldEnvironment:
-	if node is WorldEnvironment:
-		return node as WorldEnvironment
-	for c in node.get_children():
-		var r := _find_world_env(c)
-		if r != null:
-			return r
 	return null
 
 
@@ -395,7 +377,7 @@ func _add_object_props(parent: Node, obj: Object) -> void:
 
 
 # Shader-Uniforms eines Materials aufbauen (inkl. group_uniforms als Subheader).
-func _add_shader_uniforms(parent: Node, node_name: String, mat: ShaderMaterial) -> void:
+func _add_shader_uniforms(parent: Node, node_name: String, mat: ShaderMaterial, exclude: Dictionary = {}) -> void:
 	if mat.shader == null:
 		return
 	var ulist := mat.shader.get_shader_uniform_list(true)
@@ -403,6 +385,8 @@ func _add_shader_uniforms(parent: Node, node_name: String, mat: ShaderMaterial) 
 	for u in ulist:
 		var usage: int = int(u["usage"])
 		if usage & PROPERTY_USAGE_GROUP:
+			continue
+		if str(u["name"]) in exclude:
 			continue
 		if _supported(int(u["type"])):
 			has_real = true
@@ -427,6 +411,8 @@ func _add_shader_uniforms(parent: Node, node_name: String, mat: ShaderMaterial) 
 				body = _add_section(parent, "  " + uname.to_upper())
 			continue
 		if skip_group:
+			continue
+		if uname in exclude:
 			continue
 		var utype: int = int(u["type"])
 		if not _supported(utype):
@@ -942,16 +928,97 @@ func _build_style_config(parent: Node) -> void:
 	if st == null:
 		return
 
-	var grad_body := _add_section(parent, "STYLE · GRADIENT")
+	var body := _add_section(parent, "BACKGROUND STYLE")
+
 	for pair in [
 		["sky_zenith", "zenith"], ["sky_mid", "sky"], ["sky_horizon", "horizon"],
 		["sky_ground_mid", "grnd-mid"], ["sky_ground", "ground"],
+		["fog_color", "fog"], ["elem_a", "elem A"], ["elem_b", "elem B"],
 	]:
-		_add_style_swatch(grad_body, st, str(pair[0]), str(pair[1]))
+		_add_style_swatch(body, st, str(pair[0]), str(pair[1]))
 
-	var elem_body := _add_section(parent, "STYLE · ELEMENT")
-	for pair in [["fog_color", "fog"], ["elem_a", "elem A"], ["elem_b", "elem B"]]:
-		_add_style_swatch(elem_body, st, str(pair[0]), str(pair[1]))
+	# Style-Preset-UI (eigene Presets, unabhaengig von den Szenen-Presets).
+	var core := get_node_or_null("/root/BgCore")
+	if core == null:
+		return
+
+	var opt := OptionButton.new()
+	opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	opt.add_theme_font_size_override("font_size", 11)
+	opt.custom_minimum_size = Vector2(0, 24)
+	body.add_child(opt)
+
+	var name_edit := LineEdit.new()
+	name_edit.placeholder_text = "style name"
+	name_edit.add_theme_font_size_override("font_size", 11)
+	name_edit.custom_minimum_size = Vector2(0, 24)
+	body.add_child(name_edit)
+
+	var brow := HBoxContainer.new()
+	brow.add_theme_constant_override("separation", 4)
+	var save_btn := _cfg_button("SAVE")
+	var load_btn := _cfg_button("LOAD")
+	var del_btn  := _cfg_button("DEL")
+	brow.add_child(save_btn)
+	brow.add_child(load_btn)
+	brow.add_child(del_btn)
+	body.add_child(brow)
+
+	var status := Label.new()
+	status.add_theme_font_size_override("font_size", 10)
+	status.add_theme_color_override("font_color", COL_MUTED)
+	status.clip_text = true
+	body.add_child(status)
+
+	var refresh := func() -> void:
+		opt.clear()
+		for n in core.call("list_style_presets"):
+			opt.add_item(str(n))
+		var want := name_edit.text.strip_edges()
+		for i in range(opt.item_count):
+			if opt.get_item_text(i) == want:
+				opt.select(i)
+				break
+	refresh.call()
+
+	opt.item_selected.connect(func(idx: int) -> void:
+		name_edit.text = opt.get_item_text(idx))
+
+	save_btn.pressed.connect(func() -> void:
+		var nm := name_edit.text.strip_edges()
+		if nm == "":
+			status.text = "name?"
+			return
+		if core.call("save_style", nm):
+			status.text = "saved '%s'" % nm
+		else:
+			status.text = "save failed")
+
+	load_btn.pressed.connect(func() -> void:
+		var nm := name_edit.text.strip_edges()
+		if nm == "" and opt.selected >= 0:
+			nm = opt.get_item_text(opt.selected)
+			name_edit.text = nm
+		if nm == "":
+			status.text = "pick a style"
+			return
+		var snap: Dictionary = core.call("load_style", nm)
+		if snap.is_empty():
+			status.text = "not found"
+		else:
+			status.text = "loaded '%s'" % nm
+			_sync_style_swatches())
+
+	del_btn.pressed.connect(func() -> void:
+		var nm := name_edit.text.strip_edges()
+		if nm == "":
+			status.text = "name?"
+			return
+		core.call("delete_style_preset", nm)
+		status.text = "deleted '%s'" % nm)
+
+	if not core.is_connected("style_presets_changed", refresh):
+		core.connect("style_presets_changed", refresh)
 
 
 # Eine Palettenzeile: Name (feste Spalte) + vollbreiter ColorPickerButton.

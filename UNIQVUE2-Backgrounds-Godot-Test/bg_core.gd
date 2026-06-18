@@ -19,10 +19,12 @@ extends Node
 ## overlay-Werte (sauberer, fehlerfreier Teil-Recall).
 
 signal presets_changed
+signal style_presets_changed
 
-const PRESET_DIR := "user://presets"
-const PRESET_EXT := ".json"
-const FORMAT_VERSION := 1
+const PRESET_DIR       := "user://presets"
+const STYLE_PRESET_DIR := "user://style_presets"
+const PRESET_EXT       := ".json"
+const FORMAT_VERSION   := 1
 
 var _params: Node   # ParamStore
 
@@ -35,10 +37,15 @@ func _ready() -> void:
 # --------------------------------------------------------------- Preset-I/O
 
 ## Aktuellen Buehnenzustand fangen und als benanntes Preset ablegen.
+## Style-Palette (style/*) wird NICHT gespeichert — hat eigene Preset-Funktion.
 func save_current(preset_name: String) -> bool:
 	if _params == null:
 		return false
-	return save_snapshot(preset_name, _params.call("capture"))
+	var snap: Dictionary = _params.call("capture")
+	for k in snap.keys():
+		if str(k).begins_with("style/"):
+			snap.erase(k)
+	return save_snapshot(preset_name, snap)
 
 
 ## Ein fertiges Snapshot unter einem Namen ablegen. Gibt false bei leerem/ungueltigem
@@ -101,6 +108,64 @@ func delete_preset(preset_name: String) -> void:
 		presets_changed.emit()
 
 
+## Aktuelle Style-Palette als benanntes Style-Preset ablegen.
+func save_style(preset_name: String) -> bool:
+	var clean := _sanitize(preset_name)
+	if clean == "":
+		return false
+	var st := get_node_or_null("/root/Style")
+	if st == null:
+		return false
+	var f := FileAccess.open(_style_path(clean), FileAccess.WRITE)
+	if f == null:
+		return false
+	f.store_string(JSON.stringify(_encode(st.call("get_palette")), "\t"))
+	f.close()
+	style_presets_changed.emit()
+	return true
+
+
+## Style-Preset laden und auf Style-Autoload anwenden. Gibt die geladene Palette
+## zurueck (leer bei Fehler).
+func load_style(preset_name: String) -> Dictionary:
+	var clean := _sanitize(preset_name)
+	var p := _style_path(clean)
+	if not FileAccess.file_exists(p):
+		return {}
+	var f := FileAccess.open(p, FileAccess.READ)
+	if f == null:
+		return {}
+	var parsed: Variant = JSON.parse_string(f.get_as_text())
+	f.close()
+	if not (parsed is Dictionary):
+		return {}
+	var snap := _decode(parsed)
+	var st := get_node_or_null("/root/Style")
+	if st != null:
+		st.call("set_palette", snap)
+	return snap
+
+
+## Alphabetisch sortierte Liste der Style-Preset-Namen.
+func list_style_presets() -> Array:
+	var out: Array = []
+	var d := DirAccess.open(STYLE_PRESET_DIR)
+	if d == null:
+		return out
+	for fn in d.get_files():
+		if fn.ends_with(PRESET_EXT):
+			out.append(fn.substr(0, fn.length() - PRESET_EXT.length()))
+	out.sort()
+	return out
+
+
+func delete_style_preset(preset_name: String) -> void:
+	var p := _style_path(_sanitize(preset_name))
+	if FileAccess.file_exists(p):
+		DirAccess.remove_absolute(p)
+		style_presets_changed.emit()
+
+
 ## Alphabetisch sortierte Liste der Preset-Namen (ohne Endung).
 func list_presets() -> Array:
 	var out: Array = []
@@ -146,10 +211,16 @@ func summarize(snap: Dictionary) -> String:
 func _ensure_dir() -> void:
 	if not DirAccess.dir_exists_absolute(PRESET_DIR):
 		DirAccess.make_dir_recursive_absolute(PRESET_DIR)
+	if not DirAccess.dir_exists_absolute(STYLE_PRESET_DIR):
+		DirAccess.make_dir_recursive_absolute(STYLE_PRESET_DIR)
 
 
 func _path(clean: String) -> String:
 	return PRESET_DIR + "/" + clean + PRESET_EXT
+
+
+func _style_path(clean: String) -> String:
+	return STYLE_PRESET_DIR + "/" + clean + PRESET_EXT
 
 
 func _sanitize(preset_name: String) -> String:

@@ -23,10 +23,10 @@ extends Node3D
 @export_range(0.0, 3.0, 0.01) var head_glow: float = 1.0
 
 @export_group("Camera")
-@export_range(30.0, 110.0, 1.0) var cam_fov: float = 70.0
 @export_range(-180.0, 180.0, 1.0) var cam_roll: float = 0.0
 @export_range(-60.0, 60.0, 0.5) var cam_pitch: float = 0.0
 @export_range(-60.0, 60.0, 0.5) var cam_yaw: float = 0.0
+@export_range(30.0, 110.0, 1.0) var cam_fov: float = 70.0
 
 const NMAX: int = 6000
 const Z_NEAR: float = 2.0

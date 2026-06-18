@@ -9,8 +9,10 @@ global uniform vec4 elem_b : source_color;
 
 uniform float line_opacity : hint_range(0.0, 1.5)   = 0.45;
 uniform float depth_fade   : hint_range(0.0, 1.0)   = 1.0;
+group_uniforms _Sync;
 uniform float z_near       : hint_range(0.0, 100.0) = 6.0;
 uniform float z_far        : hint_range(1.0, 200.0) = 46.0;
+group_uniforms;
 
 varying float v_a;
 

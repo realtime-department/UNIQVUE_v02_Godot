@@ -5,9 +5,11 @@ render_mode unshaded, blend_add, depth_draw_never, cull_disabled, use_point_size
 
 global uniform vec4 elem_b : source_color;
 
+uniform float near_dist : hint_range(0.0, 2000.0, 50.0)    = 300.0;
+uniform float far_dist  : hint_range(500.0, 12000.0, 100.0) = 5500.0;
+group_uniforms _Sync;
 uniform float part_size : hint_range(1.0, 8.0) = 2.8;
-uniform float near_dist = 300.0;
-uniform float far_dist  = 5500.0;
+group_uniforms;
 
 varying float v_a;
 

@@ -7,7 +7,9 @@ global uniform vec4 elem_b : source_color;
 uniform float opacity     : hint_range(0.0, 1.5)    = 1.0;
 uniform float fog_start   : hint_range(60.0, 1200.0) = 140.0;
 uniform float fog_density : hint_range(0.0, 2.0)    = 1.1;
+group_uniforms _Sync;
 uniform float z_far       = 795.0;
+group_uniforms;
 uniform int   shape       : hint_range(0, 4, 1)     = 0;
 
 varying float v_a;
