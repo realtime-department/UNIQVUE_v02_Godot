@@ -26,6 +26,8 @@ BgCore="*res://bg_core.gd"
 Sequencer="*res://sequencer.gd"
 RuntimeUI="*res://runtime_ui.gd"
 PerfMonitor="*res://perf_monitor.gd"
+SlotManager="*res://modules/slot_manager.gd"
+Agenda="*res://modules/agenda_manager.gd"
 
 [display]
 

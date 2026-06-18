@@ -206,6 +206,18 @@ func summarize(snap: Dictionary) -> String:
 	return "%d params" % snap.size()
 
 
+# --------------------------------------------------------------- Public codec
+# Exposed so other systems (e.g. Agenda) can JSON-encode/decode param snapshots
+# with the same Color/Vector tagging used by presets.
+
+func encode_snapshot(snap: Dictionary) -> Dictionary:
+	return _encode(snap)
+
+
+func decode_snapshot(d: Dictionary) -> Dictionary:
+	return _decode(d)
+
+
 # --------------------------------------------------------------- Intern
 
 func _ensure_dir() -> void:
