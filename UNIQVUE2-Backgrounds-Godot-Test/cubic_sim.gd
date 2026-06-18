@@ -10,7 +10,7 @@ extends Node3D
 ## Colors come from global STYLE uniforms (fog_color/elem_a/elem_b) — NO @export
 ## Color.  @exports are captured by ParamStore as scene/* entries.
 
-@export_group("Welt & Flug")
+@export_group("World & Flight")
 @export_range(0.0, 1.5, 0.02)  var speed: float = 0.16
 @export_range(-1.5, 1.5, 0.02) var rotate: float = 0.0
 @export_range(8.0, 40.0, 0.5)  var tunnel_size: float = 26.5
@@ -27,15 +27,15 @@ extends Node3D
 @export_range(0.0, 1.5, 0.02)  var edge_glow: float = 0.48
 @export_range(0.2, 1.5, 0.05)  var opacity: float = 1.0
 
-@export_group("Partikel")
+@export_group("Particles")
 @export_range(0.0, 3.0, 0.05) var particles: float = 3.0
 @export_range(0, 4)            var shape: int = 0
 
-@export_group("Tiefe & Fog")
+@export_group("Depth & Fog")
 @export_range(60.0, 1200.0, 20.0) var fog_start: float = 140.0
 @export_range(0.0, 2.0, 0.05)     var fog_density: float = 1.10
 
-@export_group("Kamera")
+@export_group("Camera")
 @export_range(-180.0, 180.0, 1.0) var cam_roll: float = 0.0
 @export_range(0.0, 8.0, 0.2)   var cam_sway: float = 0.0
 @export_range(35.0, 110.0, 1.0) var cam_fov: float = 62.0
@@ -189,7 +189,7 @@ func _make_outline_mesh() -> ArrayMesh:
 
 func _process(delta: float) -> void:
 	var dt := minf(delta, 0.05)
-	_t += dt
+	_t = fmod(_t + dt, TAU * 1000.0)
 	var adv := dt * speed * 28.0
 	_tunnel_rot += dt * rotate * 0.2
 	_scroll -= adv
@@ -248,14 +248,13 @@ func _write_matrices() -> void:
 				_surf_buf[o + 6] = bz.y; _surf_buf[o + 7] = og.y
 				_surf_buf[o + 8] = bx.z; _surf_buf[o + 9] = by.z
 				_surf_buf[o + 10] = bz.z; _surf_buf[o + 11] = og.z
-				if outlines:
-					# Line MultiMesh shares the same transforms.
-					_line_buf[o + 0] = bx.x; _line_buf[o + 1] = by.x
-					_line_buf[o + 2] = bz.x; _line_buf[o + 3] = og.x
-					_line_buf[o + 4] = bx.y; _line_buf[o + 5] = by.y
-					_line_buf[o + 6] = bz.y; _line_buf[o + 7] = og.y
-					_line_buf[o + 8] = bx.z; _line_buf[o + 9] = by.z
-					_line_buf[o + 10] = bz.z; _line_buf[o + 11] = og.z
+				# Always write line buffer so re-enabling outlines doesn't flash stale transforms.
+				_line_buf[o + 0] = bx.x; _line_buf[o + 1] = by.x
+				_line_buf[o + 2] = bz.x; _line_buf[o + 3] = og.x
+				_line_buf[o + 4] = bx.y; _line_buf[o + 5] = by.y
+				_line_buf[o + 6] = bz.y; _line_buf[o + 7] = og.y
+				_line_buf[o + 8] = bx.z; _line_buf[o + 9] = by.z
+				_line_buf[o + 10] = bz.z; _line_buf[o + 11] = og.z
 				idx += 1
 	# ONE upload per mesh per frame instead of 6000 RS round-trips each.
 	RenderingServer.multimesh_set_buffer(_surf_mm.get_rid(), _surf_buf)

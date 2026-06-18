@@ -1,48 +1,48 @@
 extends Node
-## S2: Parameter-Schnappschuss-/Anwende-Schicht (ParamStore, Autoload).
+## S2: Parameter snapshot/apply layer (ParamStore, Autoload).
 ##
-## Sammelt ALLE laufzeit-tunbaren Parameter der aktiven Buehne in EIN flaches,
-## benanntes Register {key -> entry}. Jeder Eintrag traegt Typ + getter/setter
-## (Callable), sodass capture/apply/lerp typunabhaengig arbeiten. Das ist die
-## Bruecke, die S3 (Presets) und S4 (Sequencer) brauchen: ein Preset/Keyframe ist
-## einfach ein {key: value}-Dictionary.
+## Collects ALL runtime-tunable parameters of the active stage into ONE flat,
+## named registry {key -> entry}. Each entry carries type + getter/setter
+## (Callable), so capture/apply/lerp work type-independently. This is the
+## bridge that S3 (Presets) and S4 (Sequencer) need: a preset/keyframe is
+## simply a {key: value} dictionary.
 ##
-## D4 — Schluessel-Schema (flach, gespiegelt aus den 5 UI-Quellen):
-##   style/<key>            globale Palette (Style-Autoload)            [szenenuebergreifend]
-##   scene/<export>         @export des Szenen-Wurzelskripts            [szenenspezifisch]
-##   mat/<Node>/<uniform>   Shader-Uniform eines ShaderMaterials        [szenenspezifisch]
-##   post/<prop>            Master-Glow (BackgroundStage.post_environment)
-##   overlay/<prop>         Vignette/Grain (BackgroundStage.post_overlay)
+## D4 — key schema (flat, mirrored from the 5 UI sources):
+##   style/<key>            global palette (Style autoload)             [cross-scene]
+##   scene/<export>         @export of the scene root script            [scene-specific]
+##   mat/<Node>/<uniform>   shader uniform of a ShaderMaterial          [scene-specific]
+##   post/<prop>            master glow (BackgroundStage.post_environment)
+##   overlay/<prop>         vignette/grain (BackgroundStage.post_overlay)
 ##
-## Das Register wird bei jedem active_changed neu gebaut (wie das UI). apply()
-## ignoriert Schluessel, die in der aktuellen Szene nicht aufloesen -> ein
-## Tunnel-Snapshot, auf die Wave-Szene angewandt, setzt nur die geteilten
-## style/* + post/* und laesst scene/* + mat/* fallen (sauberer Szenenwechsel).
+## The registry is rebuilt on every active_changed (like the UI). apply()
+## ignores keys that don't resolve in the current scene -> a Tunnel snapshot
+## applied to the Wave scene only sets the shared style/* + post/* and drops
+## scene/* + mat/* (clean scene switch).
 
 const STORE_VERSION := 1
 
-# Master-Glow-Parameter (Spiegel von RuntimeUI.POST_PARAMS) — alle float.
+# Master glow parameters (mirror of RuntimeUI.POST_PARAMS) — all float.
 const POST_KEYS := [
 	"glow_intensity", "glow_strength", "glow_bloom", "glow_hdr_threshold",
 ]
-# Overlay-Shader-Parameter (Vignette/Grain) — alle float.
+# Overlay shader parameters (vignette/grain) — all float.
 const OVERLAY_KEYS := ["vignette", "grain"]
 
 var _stage: Node
-var _registry: Array = []   # Reihenfolge stabil (fuer determinist. Iteration)
+var _registry: Array = []   # stable order (for deterministic iteration)
 var _by_key: Dictionary = {}
 
-# In-Session-Cache der SZENENSPEZIFISCHEN Werte (scene/* + mat/*), je Szenenname.
-# Globale Werte (style/post/overlay) liegen in Autoloads/Master und ueberleben den
-# TRANSITION ohnehin; nur scene/* + mat/* gehen verloren, weil background_stage die
-# Szene aus der .tscn NEU instanziiert. Hier gemerkt -> beim Wiederbetreten erneut
-# angewandt, sodass Slider-Tweaks ueber Szenenwechsel hinweg bestehen bleiben.
+# In-session cache of SCENE-SPECIFIC values (scene/* + mat/*), per scene name.
+# Global values (style/post/overlay) live in autoloads/master and survive
+# TRANSITION anyway; only scene/* + mat/* are lost because background_stage
+# re-instantiates the scene from .tscn. Cached here -> re-applied on re-entry
+# so slider tweaks persist across scene switches.
 var _scene_cache: Dictionary = {}
 var _cur_scene_key: String = ""
 
 
 func _ready() -> void:
-	# Deferred: erst wenn alle Autoloads existieren und die erste Szene geladen ist.
+	# Deferred: only after all autoloads exist and the first scene is loaded.
 	_connect_stage.call_deferred()
 
 
@@ -61,24 +61,24 @@ func _connect_stage() -> void:
 func _on_active_changed(root: Node) -> void:
 	if root == null or not root.is_inside_tree():
 		return
-	# 1) Beim Verlassen die szenenspezifischen Werte der ALTEN Szene sichern. Das
-	#    bisherige Register zeigt noch auf sie; background_stage ruft active_changed
-	#    synchron nach queue_free() (deferred) -> die alten Knoten leben diesen Frame
-	#    noch, der getter liefert die zuletzt eingestellten Werte.
+	# 1) On leaving, save the scene-specific values of the OLD scene. The
+	#    current registry still points to them; background_stage fires active_changed
+	#    synchronously after queue_free() (deferred) -> the old nodes live this frame
+	#    still, the getter returns the last-set values.
 	if _cur_scene_key != "" and not _registry.is_empty():
 		_scene_cache[_cur_scene_key] = _capture_prefixed(["scene/", "mat/"])
-	# 2) Register auf die neue (frisch instanziierte) Szene neu bauen.
+	# 2) Rebuild registry for the new (freshly instantiated) scene.
 	_rebuild(root)
 	_cur_scene_key = str(root.name)
-	# 3) Gemerkte Werte dieser Szene wieder anwenden -> sonst staenden die frischen
-	#    Regler auf den .tscn-Autoren-Defaults.
+	# 3) Re-apply cached values for this scene -> otherwise fresh sliders
+	#    would sit at the .tscn author defaults.
 	if _scene_cache.has(_cur_scene_key):
 		apply(_scene_cache[_cur_scene_key])
 
 
-# --------------------------------------------------------------- Oeffentliche API
+# --------------------------------------------------------------- Public API
 
-## Aktuellen Zustand aller registrierten Parameter als {key: value} einfangen.
+## Capture current state of all registered parameters as {key: value}.
 func capture() -> Dictionary:
 	var out := {}
 	for e in _registry:
@@ -88,7 +88,7 @@ func capture() -> Dictionary:
 	return out
 
 
-## Nur Eintraege, deren Schluessel mit einem der Praefixe beginnt (z.B. scene/, mat/).
+## Only entries whose key starts with one of the prefixes (e.g. scene/, mat/).
 func _capture_prefixed(prefixes: Array) -> Dictionary:
 	var out := {}
 	for e in _registry:
@@ -102,8 +102,8 @@ func _capture_prefixed(prefixes: Array) -> Dictionary:
 	return out
 
 
-## {key: value} anwenden. Schluessel ohne passenden Eintrag werden uebersprungen
-## (z.B. szenenspezifische Keys einer anderen Szene).
+## Apply {key: value}. Keys without a matching entry are skipped
+## (e.g. scene-specific keys from another scene).
 func apply(values: Dictionary) -> void:
 	for key in values:
 		var e: Variant = _by_key.get(key)
@@ -112,10 +112,10 @@ func apply(values: Dictionary) -> void:
 		(e.setter as Callable).call(_coerce(int(e.type), values[key]))
 
 
-## Die gemerkten scene/*+mat/*-Werte einer Szene auf ihren frisch geladenen (noch nicht
-## aktiven) Root anwenden — von BackgroundStage WAEHREND der Transition aufgerufen, damit
-## die einkommende Ebene sofort im Zielzustand rendert statt von den .tscn-Defaults
-## hochzurampen. No-op, wenn die Szene noch nie besucht wurde (kein Cache-Eintrag).
+## Apply cached scene/*+mat/* values to a freshly loaded (not yet active) root —
+## called by BackgroundStage DURING the transition so the incoming layer renders
+## immediately in the target state instead of ramping from .tscn defaults.
+## No-op if the scene has never been visited (no cache entry).
 func preapply_to_scene(root: Node) -> void:
 	if root == null:
 		return
@@ -124,11 +124,11 @@ func preapply_to_scene(root: Node) -> void:
 		apply_to_root(root, _scene_cache[key])
 
 
-## Snapshot direkt auf einen (ggf. noch NICHT aktiven) Szenen-Root anwenden, OHNE das
-## Register der aktiven Szene anzutasten. Gedacht fuer die einkommende Szene WAEHREND
-## einer Transition: scene/* + mat/* werden gegen 'root' aufgeloest, style/post/overlay
-## wirken ohnehin global. So zeigt die neue Ebene sofort den Zielzustand, statt von den
-## .tscn-Defaults hochzurampen. Schluessel ohne Treffer (andere Szene) werden ignoriert.
+## Apply snapshot directly to a (possibly NOT yet active) scene root WITHOUT touching
+## the active scene's registry. Intended for the incoming scene DURING a transition:
+## scene/* + mat/* are resolved against 'root', style/post/overlay act globally anyway.
+## This way the new layer renders immediately in the target state instead of ramping
+## from .tscn defaults. Keys without a match (other scene) are ignored.
 func apply_to_root(root: Node, values: Dictionary) -> void:
 	if root == null:
 		return
@@ -162,7 +162,7 @@ func apply_to_root(root: Node, values: Dictionary) -> void:
 					(mat as ShaderMaterial).set_shader_parameter(rest.substr(slash + 1), v)
 
 
-## Wert auf den Typ des aktuellen Property-Werts ziehen (kein Register verfuegbar).
+## Coerce value to the type of the current property value (no registry available).
 func _coerce_like(current: Variant, v: Variant) -> Variant:
 	if current is int and (v is float or v is int):
 		return int(round(float(v)))
@@ -173,9 +173,9 @@ func _coerce_like(current: Variant, v: Variant) -> Variant:
 	return v
 
 
-## Typgerechte Interpolation zweier Snapshots -> gemorphtes {key: value}.
-## Nur Schluessel, die in BEIDEN vorkommen, werden interpoliert; reine a-Keys
-## bleiben (a), reine b-Keys kommen (b) hinzu — so geht beim Morph nichts verloren.
+## Type-correct interpolation of two snapshots -> morphed {key: value}.
+## Only keys present in BOTH are interpolated; a-only keys stay (a),
+## b-only keys are added (b) — nothing is lost during the morph.
 func lerp_values(a: Dictionary, b: Dictionary, t: float) -> Dictionary:
 	var out := {}
 	for key in a:
@@ -191,18 +191,20 @@ func lerp_values(a: Dictionary, b: Dictionary, t: float) -> Dictionary:
 	return out
 
 
-## Bequemlichkeit: a->b direkt auf die Buehne morphen (fuer S4-Param-Track).
+## Convenience: morph a->b directly to the stage (for S4 param track).
 func apply_lerp(a: Dictionary, b: Dictionary, t: float) -> void:
 	apply(lerp_values(a, b, t))
 
 
-## Kennung der aktiven Szene (zum Taggen von Snapshots in S3/S4).
+## Key of the active scene (for tagging snapshots in S3/S4).
 func active_scene_key() -> String:
 	var root: Variant = _stage.call("active_root") if _stage != null else null
+	if not is_instance_valid(root):
+		return ""
 	return str(root.name) if root is Node else ""
 
 
-## Alle bekannten Schluessel (stabile Reihenfolge) — fuer Debug/Preset-UI.
+## All known keys (stable order) — for debug/preset UI.
 func keys() -> Array:
 	var out: Array = []
 	for e in _registry:
@@ -214,13 +216,13 @@ func has_key(key: String) -> bool:
 	return _by_key.has(key)
 
 
-# --------------------------------------------------------------- Register-Aufbau
+# --------------------------------------------------------------- Registry Build
 
 func _rebuild(root: Node) -> void:
 	_registry.clear()
 	_by_key.clear()
 
-	# 1) Globale Palette (szenenuebergreifend).
+	# 1) Global palette (cross-scene).
 	var st := get_node_or_null("/root/Style")
 	if st != null:
 		for k in st.call("keys"):
@@ -230,11 +232,11 @@ func _rebuild(root: Node) -> void:
 				func() -> Variant: return st.call("get_color", sk),
 				func(v: Variant) -> void: st.call("set_color", sk, v))
 
-	# 2) @export des Wurzel-Skripts (szenenspezifisch).
+	# 2) @exports of the root script (scene-specific).
 	if root.get_script() != null:
 		_collect_object_props(root)
 
-	# 3) Shader-Uniforms aller ShaderMaterials (szenenspezifisch).
+	# 3) Shader uniforms of all ShaderMaterials (scene-specific).
 	for entry in _find_shader_materials(root):
 		_collect_shader_uniforms(str(entry[0]), entry[1])
 
@@ -287,7 +289,7 @@ func _collect_shader_uniforms(node_name: String, mat: ShaderMaterial) -> void:
 	for u in mat.shader.get_shader_uniform_list(true):
 		var usage: int = int(u["usage"])
 		if usage & PROPERTY_USAGE_GROUP:
-			# Gruppen mit fuehrendem '_' (z.B. _Sync) werden vollstaendig ignoriert.
+			# Groups with a leading '_' (e.g. _Sync) are fully ignored.
 			skip_group = str(u["name"]).begins_with("_")
 			continue
 		if skip_group:
@@ -304,7 +306,7 @@ func _collect_shader_uniforms(node_name: String, mat: ShaderMaterial) -> void:
 			func(v: Variant) -> void: mat.set_shader_parameter(uname, v))
 
 
-# Aktueller Uniform-Wert; faellt auf den Shader-Default zurueck (Uniform nie gesetzt).
+# Current uniform value; falls back to the shader default (uniform never set).
 func _uniform_get(mat: ShaderMaterial, rid: RID, uname: String) -> Variant:
 	var v: Variant = mat.get_shader_parameter(uname)
 	if v == null:
@@ -312,14 +314,14 @@ func _uniform_get(mat: ShaderMaterial, rid: RID, uname: String) -> Variant:
 	return v
 
 
-# --------------------------------------------------------------- Typ-Helfer
+# --------------------------------------------------------------- Type Helpers
 
 func _supported(t: int) -> bool:
 	return (t == TYPE_FLOAT or t == TYPE_INT or t == TYPE_VECTOR2
 		or t == TYPE_VECTOR3 or t == TYPE_COLOR or t == TYPE_BOOL)
 
 
-# Wert auf den Registertyp ziehen (Slider liefern float, Picker liefern Color usw.).
+# Coerce value to the registry type (sliders deliver float, pickers deliver Color, etc.).
 func _coerce(type: int, v: Variant) -> Variant:
 	match type:
 		TYPE_FLOAT:
@@ -357,7 +359,7 @@ func _infer_type(v: Variant) -> int:
 	return TYPE_FLOAT
 
 
-# --------------------------------------------------------------- Buehnen-Zugriff
+# --------------------------------------------------------------- Stage Access
 
 func _find_shader_materials(root: Node) -> Array:
 	var out: Array = []
@@ -377,7 +379,7 @@ func _collect_shader_materials(node: Node, out: Array, seen: Dictionary) -> void
 		_collect_shader_materials(c, out, seen)
 
 
-# Master-Post-Environment (S1); faellt auf die Szenen-Env zurueck.
+# Master post-environment (S1); falls back to the scene environment.
 func _post_env(root: Node) -> Environment:
 	if _stage != null:
 		var pe: Variant = _stage.call("post_environment")

@@ -13,10 +13,10 @@ extends Node3D
 @export_range(0, 6000, 1) var particle_count: int = 2200
 @export_range(5.0, 150.0, 1.0) var radius: float = 70.0
 
-# Farben kommen jetzt global aus STYLE (fog_color/elem_a/elem_b) statt aus
-# per-Szene-@exports. Konvention wie im Web-Studio: c1=Fog, c2=elemA, c3=elemB
-# (studio-v005.html:356). Werden je Frame in _simulate() aus dem Style-Autoload
-# gelesen (guenstig) und CPU-seitig in die Vertex-Farben gemischt.
+# Colors now come globally from STYLE (fog_color/elem_a/elem_b) instead of
+# per-scene @exports. Convention as in the web studio: c1=Fog, c2=elemA, c3=elemB
+# (studio-v005.html:356). Read per frame in _simulate() from the Style autoload
+# (cheap) and mixed into vertex colors on the CPU side.
 
 @export_group("Appearance")
 @export_range(0.0, 1.5, 0.01) var opacity: float = 0.9
@@ -37,16 +37,16 @@ var _pang: PackedFloat32Array
 var _prad: PackedFloat32Array
 var _pseed: PackedFloat32Array
 
-# Breiten-Faktor (aspect/16:9): streckt die horizontale (X-)Ausdehnung der radialen
-# Streak-Verteilung, damit bei breiten/Wand-Aufloesungen die Roehre die Breite fuellt
-# statt mittig zu clustern. Nur X wird skaliert (Y/Z bleiben), die Verteilung ist
-# pro Frame aus _pang/_prad berechnet -> kein Re-Seed noetig.
+# Width factor (aspect/16:9): stretches the horizontal (X) extent of the radial
+# streak distribution so the tube fills the width on wide/wall resolutions
+# instead of clustering in the center. Only X is scaled (Y/Z stay), distribution is
+# computed per frame from _pang/_prad -> no re-seed needed.
 var _wfac: float = 1.0
 
-# Batched geometry buffers. Statt per-Vertex surface_*-Calls (bis zu ~12000
-# Scripting-Boundary-Calls/Frame) fuellen wir persistente Packed-Arrays und
-# laden sie einmal pro Mesh via ArrayMesh.add_surface_from_arrays hoch — exakt
-# das Muster aus plexus_sim.gd _upload_meshes().
+# Batched geometry buffers. Instead of per-vertex surface_* calls (up to ~12000
+# scripting boundary calls/frame) we fill persistent packed arrays and
+# upload them once per mesh via ArrayMesh.add_surface_from_arrays — exactly
+# the pattern from plexus_sim.gd _upload_meshes().
 var _streak_mesh: ArrayMesh
 var _head_mesh: ArrayMesh
 var _sp: PackedVector3Array       # streak vertex positions (2 per particle)
@@ -69,8 +69,8 @@ func _ready() -> void:
 		stage.aspect_changed.connect(_on_aspect_changed)
 	for i in range(NMAX):
 		_spawn(i, true)
-	# Persistente Buffer einmal auf NMAX dimensionieren (Streaks: 2 Vertices/
-	# Partikel). Upload sliced spaeter auf die tatsaechlich befuellte Laenge.
+	# Size persistent buffers once to NMAX (streaks: 2 vertices/
+	# particle). Upload sliced later to the actually filled length.
 	_sp = PackedVector3Array(); _sp.resize(NMAX * 2)
 	_sc = PackedColorArray();   _sc.resize(NMAX * 2)
 	_hp = PackedVector3Array(); _hp.resize(NMAX)
@@ -79,8 +79,8 @@ func _ready() -> void:
 	_head_mesh = ArrayMesh.new()
 	_streaks.mesh = _streak_mesh
 	_heads.mesh = _head_mesh
-	# X-Halbmass mit _wfac geweitet, damit die horizontal gestreckte Verteilung auf
-	# breiten Aufloesungen nicht geculled wird.
+	# X half-extent widened by _wfac so the horizontally stretched distribution is
+	# not culled on wide resolutions.
 	var hx := 200.0 * maxf(1.0, _wfac)
 	var big_aabb := AABB(Vector3(-hx, -200.0, -410.0), Vector3(hx * 2.0, 400.0, 820.0))
 	_streaks.custom_aabb = big_aabb
@@ -95,9 +95,8 @@ func _spawn(i: int, spread: bool) -> void:
 	_prad[i] = (0.15 + randf() * 0.85) * radius
 	_pseed[i] = randf()
 
-# Aspekt-Aenderung: nur den Breiten-Faktor merken. Die X-Positionen werden im
-# naechsten _simulate() neu aus _pang/_prad * _wfac berechnet -> sanfter Uebergang,
-# kein Re-Seed.
+# Aspect change: only store the width factor. X positions are recomputed in the
+# next _simulate() from _pang/_prad * _wfac -> smooth transition, no re-seed.
 func _on_aspect_changed(aspect: float) -> void:
 	_wfac = aspect / (16.0 / 9.0)
 
@@ -123,14 +122,14 @@ func _simulate(dt: float) -> void:
 	if speed <= 0.0:
 		_upload_meshes(0)
 		return
-	# Farben zentral aus STYLE (fern/Tal -> nah/Glanz).
+	# Colors centrally from STYLE (far/valley -> near/highlight).
 	var color_far: Color = Style.get_color("fog_color")
 	var color_mid: Color = Style.get_color("elem_a")
 	var color_near: Color = Style.get_color("elem_b")
 	var n := mini(NMAX, particle_count)
-	# Lauf-Schreibindex: respawnte Partikel (continue) emittieren keine
-	# Vertices, daher ist die befuellte Laenge variabel (<= n). si zaehlt die
-	# tatsaechlich geschriebenen Streak/Head-Partikel — wie plexus's li.
+	# Running write index: respawned particles (continue) emit no
+	# vertices, so the filled length is variable (<= n). si counts the
+	# actually written streak/head particles — like plexus's li.
 	var si := 0
 	for i in range(n):
 		_pz[i] -= speed * dt
@@ -140,12 +139,12 @@ func _simulate(dt: float) -> void:
 			_spawn(i, false)
 			continue
 		var z: float = _pz[i]
-		# Nur X mit dem Breiten-Faktor strecken -> radiale Verteilung wird auf breiten
-		# Aufloesungen horizontal aufgezogen, Y bleibt unveraendert.
+		# Only stretch X with the width factor -> radial distribution is pulled wide
+		# on wide resolutions, Y stays unchanged.
 		var x: float = cos(_pang[i]) * _prad[i] * _wfac
 		var y: float = sin(_pang[i]) * _prad[i]
 		var near_t: float = 1.0 - z / Z_FAR
-		var len: float = minf(z - Z_NEAR,
+		var streak_len: float = minf(z - Z_NEAR,
 			speed * dt * streak_length * (1.0 + near_t * 6.0))
 		var col: Color
 		if near_t < 0.5:
@@ -156,11 +155,11 @@ func _simulate(dt: float) -> void:
 		var a_front: float = minf(1.0, 0.3 + near_t) * opacity
 		var fc := Color(col.r * br, col.g * br, col.b * br, a_front)
 		var bc := Color(col.r * br * 0.2, col.g * br * 0.2, col.b * br * 0.2, 0.0)
-		# Streak: front-Vertex (fc) + back-Vertex (bc) in die Buffer schreiben.
+		# Streak: write front vertex (fc) + back vertex (bc) into the buffers.
 		var b := si * 2
 		_sp[b] = Vector3(x, y, -z)
 		_sc[b] = fc
-		_sp[b + 1] = Vector3(x, y, -(z + len))
+		_sp[b + 1] = Vector3(x, y, -(z + streak_len))
 		_sc[b + 1] = bc
 		var ha: float = minf(1.0, near_t * 1.2) * head_glow * opacity
 		_hp[si] = Vector3(x, y, -z)
@@ -169,9 +168,9 @@ func _simulate(dt: float) -> void:
 	_upload_meshes(si)
 
 func _upload_meshes(si: int) -> void:
-	# Einmaliger Upload pro Mesh statt per-Vertex-Calls (mirrors plexus_sim.gd
-	# _upload_meshes). Nur den befuellten Slice hochladen; Zero-Vertex-Fall
-	# nach clear_surfaces ueberspringen.
+	# Single upload per mesh instead of per-vertex calls (mirrors plexus_sim.gd
+	# _upload_meshes). Upload only the filled slice; skip the zero-vertex case
+	# after clear_surfaces.
 	_streak_mesh.clear_surfaces()
 	if si > 0:
 		var arrs: Array = []

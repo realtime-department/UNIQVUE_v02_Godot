@@ -1,10 +1,10 @@
 extends MeshInstance3D
-## Erzeugt einmalig ein grid_w x grid_h Punkt-Gitter (XZ-Ebene) plus ein Linien-
-## Gitter (Wire) als Geschwisterknoten. Die gesamte Wellenbewegung geschieht im
-## Vertex-Shader — CPU baut die Geometrie nur einmal (oder bei Dichte-Aenderung).
+## Creates once a grid_w x grid_h point grid (XZ plane) plus a line
+## grid (wire) as a sibling node. All wave motion happens in the
+## vertex shader — CPU builds geometry only once (or on density change).
 ##
-## Dichte-Aenderung: particle_wave_root.gd ruft set_density() auf, wenn das
-## 'density'-Export aendert.
+## Density change: particle_wave_root.gd calls set_density() when the
+## 'density' export changes.
 
 const _WIRE_SHADER := preload("res://wave_wire.gdshader")
 
@@ -14,12 +14,12 @@ const SPAN_X_BASE: float = 320.0
 var span_x: float = SPAN_X_BASE
 var span_z: float = 420.0
 
-# Breiten-Faktor (aspect/16:9): streckt die X-Spannweite des Gitters (breitere
-# Spaltenabstaende bei gleicher Punktzahl -> stabiler Polycount), damit das Gitter
-# bei breiten/Wand-Aufloesungen die Breite fuellt. Z/Y bleiben unveraendert.
+# Width factor (aspect/16:9): stretches the X span of the grid (wider
+# column spacing at same point count -> stable polycount) so the grid
+# fills the width on wide/wall resolutions. Z/Y stay unchanged.
 var _wfac: float = 1.0
 
-var _verts: PackedVector3Array   # geteilt zwischen Punkt- und Linien-Gitter
+var _verts: PackedVector3Array   # shared between point and line grid
 
 
 func _ready() -> void:
@@ -32,9 +32,9 @@ func _ready() -> void:
 	_build_wire.call_deferred()
 
 
-# Aspekt-Aenderung: X-Spannweite neu setzen und Gitter neu aufbauen. Die Wellen-
-# bewegung lebt komplett im Vertex-Shader, daher genuegt ein einmaliger Rebuild der
-# Basis-Geometrie (kein Per-Frame-Reset). Z/Y bleiben unveraendert.
+# Aspect change: reset X span and rebuild grid. Wave motion lives entirely
+# in the vertex shader, so a one-time rebuild of the base geometry is enough
+# (no per-frame reset). Z/Y stay unchanged.
 func _on_aspect_changed(aspect: float) -> void:
 	var nf := aspect / (16.0 / 9.0)
 	if absf(nf - _wfac) < 0.0001:
@@ -44,8 +44,8 @@ func _on_aspect_changed(aspect: float) -> void:
 	_build()
 
 
-## Von particle_wave_root.density-Setter aufgerufen. Rebuild des Punkt- und
-## Linien-Gitters mit neuer Dichte.
+## Called by particle_wave_root.density setter. Rebuilds the point and
+## line grid with the new density.
 func set_density(n: int) -> void:
 	grid_w = clampi(n, 5, 340)
 	grid_h = grid_w
@@ -97,7 +97,7 @@ func _build_wire() -> void:
 	if parent == null:
 		return
 
-	# Wire-Knoten suchen oder anlegen.
+	# Find or create the wire node.
 	var wire_name := name + "Wire"
 	var wire := parent.get_node_or_null(wire_name) as MeshInstance3D
 	if wire == null:
@@ -120,7 +120,7 @@ func _build_wire() -> void:
 		wire.material_override = wmat
 		parent.add_child(wire)
 
-	# Linien-Index-Puffer aufbauen (horizontale + vertikale Verbindungen).
+	# Build line index buffer (horizontal + vertical connections).
 	var w := grid_w
 	var h := grid_h
 	var indices := PackedInt32Array()
@@ -143,4 +143,4 @@ func _build_wire() -> void:
 	wm.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
 	wire.mesh = wm
 	wire.custom_aabb = custom_aabb
-	print("Particle Wave: %d Punkte, %d Liniensegmente" % [grid_w * grid_h, indices.size() / 2])
+	print("Particle Wave: %d points, %d line segments" % [grid_w * grid_h, indices.size() / 2])

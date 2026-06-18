@@ -2,41 +2,41 @@ extends Node3D
 ## Plexus - 3D-Punktnetz, ported from studio-v005 createPlexusModule()
 ## (studio-v005.html:563-748).
 ##
-## CPU-Sim nach dem Muster von tunnel_sim.gd: N Punkte (max 900) treiben
-## velocity-gesteuert in einer 22 x 13 x (8+depth*34) Box. Der Chaos-Regler
-## blendet zwischen laminarer Stroemung und turbulentem Feld. Hub-Punkte
-## (deterministisch via rngHash + hubs-Anteil) sind groesser/heller und
-## verstaerken ihre Links. Pro Frame EIN Grid-Nachbarpass (HTML buildGrid)
-## liefert gleichzeitig Separationskraefte (SEP_R) und Links (< link_dist,
-## smoothstep-Fade ueber link_soft); Geometrie wird in persistente Buffer
-## geschrieben und je Mesh in EINEM add_surface_from_arrays hochgeladen
+## CPU sim following the pattern of tunnel_sim.gd: N points (max 900) drift
+## velocity-controlled in a 22 x 13 x (8+depth*34) box. The chaos control
+## blends between laminar flow and turbulent field. Hub points
+## (deterministic via rngHash + hubs fraction) are larger/brighter and
+## amplify their links. One grid neighbour pass per frame (HTML buildGrid)
+## delivers both separation forces (SEP_R) and links (< link_dist,
+## smoothstep-fade over link_soft); geometry is written to persistent buffers
+## and uploaded per mesh in ONE add_surface_from_arrays call
 ## (PRIMITIVE_LINES + PRIMITIVE_POINTS).
 ##
-## Farben kommen NICHT aus @exports: die Shader (plexus.gdshader /
-## plexus_line.gdshader) lesen die globalen STYLE-Uniforms
-## fog_color/elem_a/elem_b direkt (uC1/uC2/uC3 im Web, studio-v005.html:697).
-## Pro-Punkt-Daten laufen ueber die Vertex-Color: Punkte COLOR.r = hub,
-## Linien COLOR.a = Link-Alpha.
+## Colors do NOT come from @exports: the shaders (plexus.gdshader /
+## plexus_line.gdshader) read the global STYLE uniforms
+## fog_color/elem_a/elem_b directly (uC1/uC2/uC3 in the web, studio-v005.html:697).
+## Per-point data runs via vertex color: points COLOR.r = hub,
+## lines COLOR.a = link alpha.
 
-@export_group("Netz & Bewegung")
+@export_group("Net & Motion")
 @export_range(0.0, 1.5, 0.02) var speed: float = 0.10
 @export_range(0.0, 1.5, 0.02) var drift: float = 0.66
 @export_range(0.0, 1.0, 0.02) var chaos: float = 0.88
 @export_range(1.5, 8.0, 0.1) var link_dist: float = 5.1
 @export_range(0.0, 0.95, 0.02) var link_soft: float = 0.64
 
-@export_group("Komposition")
+@export_group("Composition")
 @export_range(60, 900, 10) var count: int = 420
 @export_range(0.0, 1.0, 0.02) var depth: float = 0.88
 @export_range(0.0, 0.6, 0.02) var hubs: float = 0.28
 
-@export_group("Darstellung")
+@export_group("Appearance")
 @export_range(2.0, 16.0, 0.5) var point_size: float = 2.5
 @export_range(0.0, 1.5, 0.05) var point_opacity: float = 1.05
 @export_range(0.0, 1.5, 0.05) var line_opacity: float = 0.45
 @export_range(0.0, 1.0, 0.05) var depth_fade: float = 1.0
 
-@export_group("Kamera")
+@export_group("Camera")
 @export_range(6.0, 60.0, 0.5) var cam_dist: float = 16.0
 @export_range(-20.0, 20.0, 0.5) var cam_height: float = 0.0
 @export_range(-20.0, 20.0, 0.5) var cam_yaw: float = 0.0
@@ -44,10 +44,10 @@ extends Node3D
 @export_range(25.0, 90.0, 1.0) var cam_fov: float = 50.0
 
 const NMAX: int = 900
-const LMAX: int = 24000          # max Liniensegmente pro Frame
+const LMAX: int = 24000          # max line segments per frame
 const BOX_X: float = 22.0
 const BOX_Y: float = 13.0
-const SEP_R: float = 2.6         # Separations-Radius (HTML SEP_R)
+const SEP_R: float = 2.6         # separation radius (HTML SEP_R)
 
 var _pos: PackedFloat32Array
 var _vel: PackedFloat32Array
@@ -74,9 +74,9 @@ var _box_z: float = 14.0
 var _depth_cache: float = -1.0
 var _hubs_cache: float = -1.0
 
-# Breiten-Faktor (aspect/16:9): skaliert die horizontale Box-Ausdehnung, damit der
-# Inhalt bei breiten/Wand-Aufloesungen die volle Breite fuellt statt in der Mitte zu
-# clustern. _box_x ist die Laufzeit-X-Ausdehnung (= BOX_X * _wfac); BOX_X bleibt Basis.
+# Width factor (aspect/16:9): scales the horizontal box extent so content
+# fills the full width on wide/wall resolutions instead of clustering in the center.
+# _box_x is the runtime X extent (= BOX_X * _wfac); BOX_X remains the base.
 var _wfac: float = 1.0
 var _box_x: float = BOX_X
 
@@ -128,16 +128,16 @@ func _ready() -> void:
 	_apply_aabb()
 
 
-# Grosszuegige AABB (Box max 22 x 13 x 42, X-Halbmass mit _wfac geweitet), damit
-# auf breiten Aufloesungen nichts geculled wird.
+# Generous AABB (box max 22 x 13 x 42, X half-extent widened by _wfac) so nothing
+# is culled on wide resolutions.
 func _apply_aabb() -> void:
-	var hx := 20.0 * maxf(1.0, _wfac)   # Cull-Box nie unter Basis schrumpfen (wie tunnel/smoothwave)
+	var hx := 20.0 * maxf(1.0, _wfac)   # never shrink cull box below base (like tunnel/smoothwave)
 	var big_aabb := AABB(Vector3(-hx, -20.0, -25.0), Vector3(hx * 2.0, 40.0, 50.0))
 	_points.custom_aabb = big_aabb
 	_streaks.custom_aabb = big_aabb
 
 
-# Deterministischer Hash wie im HTML rngHash(): frac(sin(i*127.1+0.5)*43758.5453).
+# Deterministic hash as in HTML rngHash(): frac(sin(i*127.1+0.5)*43758.5453).
 func _rng_hash(i: int) -> float:
 	var x := sin(float(i) * 127.1 + 0.5) * 43758.5453
 	return x - floor(x)
@@ -155,7 +155,7 @@ func _seed() -> void:
 	_re_hub()
 
 
-# Hub-Staerke je Punkt aus deterministischem Hash; hubs = Anteil der Punkte > 0.
+# Hub strength per point from deterministic hash; hubs = fraction of points > 0.
 func _re_hub() -> void:
 	var thr := 1.0 - hubs
 	for i in range(NMAX):
@@ -163,7 +163,7 @@ func _re_hub() -> void:
 		_hub[i] = (r - thr) / maxf(0.0001, hubs) if r > thr else 0.0
 
 
-# Tiefen-Aenderung: Z-Positionen proportional auf die neue Box-Tiefe skalieren.
+# Depth change: scale Z positions proportionally to the new box depth.
 func _apply_depth() -> void:
 	var old_z := _box_z
 	_box_z = 8.0 + depth * 34.0
@@ -173,9 +173,9 @@ func _apply_depth() -> void:
 			_pos[i * 3 + 2] *= k
 
 
-# Aspekt-Aenderung: X-Box-Ausdehnung proportional auf den neuen Breiten-Faktor
-# skalieren (Muster wie _apply_depth() fuer Z). Bestehende X-Positionen werden mit
-# nf/_wfac umgerechnet, damit nichts springt; Y/Z bleiben unveraendert.
+# Aspect change: scale X box extent proportionally to the new width factor
+# (pattern like _apply_depth() for Z). Existing X positions are recalculated
+# with nf/_wfac so nothing jumps; Y/Z stay unchanged.
 func _on_aspect_changed(aspect: float) -> void:
 	var nf := aspect / (16.0 / 9.0)
 	if absf(nf - _wfac) < 0.0001:
@@ -204,7 +204,7 @@ func _process(delta: float) -> void:
 
 func _update_camera() -> void:
 	# HTML applyCamera(): position.set(camYaw, camHeight, camDist), lookAt(0,0,0),
-	# Roll ueber den Up-Vektor.
+	# Roll via the up vector.
 	_camera.position = Vector3(cam_yaw, cam_height, cam_dist)
 	var rr := deg_to_rad(cam_roll)
 	_camera.look_at(Vector3.ZERO, Vector3(sin(rr), cos(rr), 0.0))
@@ -212,7 +212,7 @@ func _update_camera() -> void:
 
 
 func _update_materials() -> void:
-	# uZNear/uZFar wie im HTML render(): Kamera-Z +/- halbe Box-Tiefe.
+	# uZNear/uZFar as in HTML render(): camera Z +/- half box depth.
 	var z_near := maxf(0.5, cam_dist - _box_z * 0.5)
 	var z_far := cam_dist + _box_z * 0.5
 	if _point_mat != null:
@@ -228,7 +228,7 @@ func _update_materials() -> void:
 		_line_mat.set_shader_parameter("z_far", z_far)
 
 
-# Stroemungsfeld (HTML flow()): laminarer + turbulenter Anteil, chaos blendet.
+# Flow field (HTML flow()): laminar + turbulent component, chaos blends.
 func _flow(x: float, y: float, z: float, ph: float) -> Vector3:
 	var ch := chaos
 	var lx := 0.5 + 0.25 * sin(_t * 0.2 + y * 0.08 + ph)
@@ -351,8 +351,8 @@ func _simulate(dt: float) -> void:
 
 	var t1 := Time.get_ticks_usec()
 
-	# --- Integration (HTML step()): Flow + Separation + Jitter, Daempfung,
-	# Positions-Update, weiche Box-Grenzen (Feder zurueck ab 96 % Halbmass).
+	# --- Integration (HTML step()): flow + separation + jitter, damping,
+	# position update, soft box boundaries (spring back from 96% half-extent).
 	var sp := speed
 	var dr := drift
 	var damp := pow(0.985, dt * 60.0)   # frameraten-unabhaengig (HTML: 0.985 @60fps)
@@ -407,7 +407,7 @@ func _simulate(dt: float) -> void:
 		if _pf_frames >= 60:
 			var f := float(_pf_frames)
 			print("plexus n=%d links=%d | sim cpu/frame: neighbours+emit %.2fms  integrate %.2fms  upload %.2fms  TOTAL %.2fms | fps=%.0f (frame budget %.2fms)" % [
-				n, _pf_links / _pf_frames,
+				n, float(_pf_links) / float(_pf_frames),
 				_pf_nbr / f / 1000.0, _pf_int / f / 1000.0, _pf_up / f / 1000.0,
 				(_pf_nbr + _pf_int + _pf_up) / f / 1000.0,
 				Engine.get_frames_per_second(), 1000.0 / maxf(1.0, Engine.get_frames_per_second())])

@@ -11,7 +11,7 @@ extends Node3D
 ## Colors: horizon glow reads elem_b, ground tint reads fog_color/elem_a — all
 ## global STYLE uniforms, NO @export Color.
 
-@export_group("Welt & Flug")
+@export_group("World & Flight")
 @export_range(0.0, 2.0, 0.02) var speed: float = 0.7
 
 @export_group("Material")
@@ -19,17 +19,17 @@ extends Node3D
 @export_range(0.3, 2.0, 0.05) var light_gain: float = 1.0
 @export_range(0.0, 1.0, 0.02) var tint_mix: float = 0.5
 
-@export_group("Elemente")
+@export_group("Elements")
 @export_range(0.0, 1.5, 0.02) var ground: float = 0.78
 @export_range(0.0, 1.5, 0.02) var grid: float = 0.85
 @export_range(0.0, 1.0, 0.02) var particles: float = 1.0
 @export_range(1.0, 8.0, 0.1)  var particle_size: float = 2.8
 
-@export_group("Tiefe & Fog")
+@export_group("Depth & Fog")
 @export_range(1.0, 5.0, 0.1) var fade_start: float = 3.2
 @export_range(3.0, 9.0, 0.1) var fade_end: float = 6.6
 
-@export_group("Kamera")
+@export_group("Camera")
 @export_range(24.0, 70.0, 1.0) var cam_fov: float = 38.0
 
 const NBLOCKS  := 8
@@ -46,9 +46,9 @@ const PCOUNT   := 800
 
 var _travel: float = 0.0
 
-# Breiten-Faktor (aspect/16:9): streckt die horizontale (X-)Ausdehnung von
-# Block-Spalten, Sky-Panels und Partikeln, damit der Korridor bei breiten/Wand-
-# Aufloesungen die Breite fuellt statt mittig zu clustern. Y/Z bleiben unveraendert.
+# Width factor (aspect/16:9): stretches the horizontal (X) extent of
+# block columns, sky panels and particles so the corridor fills the width
+# on wide/wall resolutions instead of clustering in the center. Y/Z stay unchanged.
 var _wfac: float = 1.0
 
 # Geometry bounds (computed from JSON)
@@ -190,7 +190,7 @@ func _build_block_transforms() -> void:
 	# 18 base transforms per block (floor + ceiling for each of 9 columns)
 	_block_base.resize(COLS * 2)
 	for c in range(COLS):
-		# X-Spaltenversatz mit _wfac strecken -> Korridor wird breiter.
+		# Stretch X column offset by _wfac -> corridor becomes wider.
 		var ox := ((float(c) - float(COLS - 1) * 0.5) * _step_x - _cx) * _wfac
 
 		# Floor mesh: small Y jitter, small Y rotation
@@ -231,7 +231,7 @@ func _build_sky_panels() -> void:
 			var bright := 0.28 + pow(_rand(float(idx) * 2.7), 1.5) * 0.5
 			var w := 150.0 + _rand(float(idx) * 1.9) * 190.0
 			var d := 150.0 + _rand(float(idx) * 2.3) * 200.0
-			# X-Spaltenabstand der Sky-Panels mit _wfac strecken (Panel-Groesse bleibt).
+			# Stretch sky panel X column spacing by _wfac (panel size stays unchanged).
 			var px := ((float(col) - float(SKY_COLS - 1) * 0.5) * 340.0 \
 			          + (_rand(float(idx)) * 2.0 - 1.0) * 110.0) * _wfac
 			var py := PANEL_Y - _rand(float(idx) * 1.7) * 40.0
@@ -258,9 +258,9 @@ func _init_particles() -> void:
 	_part_node.mesh = _p_mesh
 
 
-# Aspekt-Aenderung: X-Ausdehnung proportional auf den neuen Breiten-Faktor skalieren.
-# Bestehende Partikel-X mit nf/_wfac umrechnen (kein Sprung), gecachte Block- und
-# Sky-Basistransforms neu aus _wfac aufbauen; Y/Z bleiben unveraendert.
+# Aspect change: scale X extent proportionally to the new width factor.
+# Recalculate existing particle X with nf/_wfac (no jump), rebuild cached block
+# and sky base transforms from _wfac; Y/Z stay unchanged.
 func _on_aspect_changed(aspect: float) -> void:
 	var nf := aspect / (16.0 / 9.0)
 	if absf(nf - _wfac) < 0.0001:
@@ -275,7 +275,7 @@ func _on_aspect_changed(aspect: float) -> void:
 
 func _process(delta: float) -> void:
 	var dt := minf(delta, 0.05)
-	_travel += speed * 100.0 * dt
+	_travel = fmod(_travel + speed * 100.0 * dt, float(NBLOCKS) * maxf(_seg_len, 1.0))
 	_update_blocks()
 	_update_sky_panels()
 	_update_particles(dt)

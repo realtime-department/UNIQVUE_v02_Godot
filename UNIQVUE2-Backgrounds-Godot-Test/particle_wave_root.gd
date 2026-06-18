@@ -1,9 +1,9 @@
 extends Node3D
-## ParticleWave scene root — Kamera-Parameter, Gitter-Dichte und Wire-Sync.
-## @exports werden von ParamStore als scene/*-Eintraege erfasst.
+## ParticleWave scene root — camera parameters, grid density and wire sync.
+## @exports are captured by ParamStore as scene/* entries.
 
 @export_group("Grid")
-## Gitterpunkte pro Achse. Aenderung loest einen Rebuild aus.
+## Grid points per axis. Change triggers a rebuild.
 @export_range(25, 340, 1) var density: int = 220:
 	set(v):
 		density = v
@@ -37,11 +37,11 @@ func _update_camera() -> void:
 		return
 	_camera.fov = cam_fov
 	_camera.position = Vector3(cam_yaw, cam_height, -cam_dist)
-	# cam_pitch ist die Y-Koordinate des Blickziels (wie HTML: CAM_LOOK.set(camYaw*0.3, camPitch, -60)).
+	# cam_pitch is the Y coordinate of the look target (as in HTML: CAM_LOOK.set(camYaw*0.3, camPitch, -60)).
 	_camera.look_at(Vector3(cam_yaw * 0.3, cam_pitch, 60.0), Vector3.UP)
 
 
-## Geteilte Wellen-Parameter vom Grid-Material auf beide Wire-Materialien uebertragen.
+## Propagate shared wave parameters from the grid material to both wire materials.
 func _sync_wire() -> void:
 	var grid := get_node_or_null("Grid") as MeshInstance3D
 	if grid == null:

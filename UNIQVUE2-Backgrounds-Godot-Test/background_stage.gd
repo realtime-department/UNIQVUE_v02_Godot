@@ -1,37 +1,37 @@
 extends CanvasLayer
-## Hintergrund-Buehne (Autoload, layer 0 -> unter der UI).
+## Background stage (Autoload, layer 0 -> below the UI).
 ##
-## Jeder Hintergrund wird in ein EIGENES Off-Screen-SubViewport gerendert (eigene
-## World3D -> eigene Kamera + eigenes WorldEnvironment/Glow). Angezeigt werden die
-## Viewport-Texturen ueber zwei IMMER vollflaechige TextureRects mit einem
-## Zoom-Shader -> nahtlos, keine schwarzen Raender (die Tiefe entsteht im UV-Zoom,
-## nicht durch Skalieren des Rechtecks).
+## Each background is rendered into its OWN off-screen SubViewport (own
+## World3D -> own camera + own WorldEnvironment/Glow). The viewport textures
+## are displayed via two ALWAYS full-screen TextureRects with a zoom shader ->
+## seamless, no black borders (depth is created via UV zoom, not by scaling
+## the rect).
 ##
-## TRANSITION (beide Hintergruende laufen live, symmetrisch ueber TRANSITION_TIME):
-##   - alte Ebene : zoom 1.0 -> ZOOM_SPAN (faehrt in die Kamera, ease-in)  + fade 1 -> 0
-##   - neue Ebene : zoom ZOOM_SPAN -> 1.0 (setzt sich aus dem Zoom, ease-out) + fade 0 -> 1
-## Beide Zoom-Pfade sind exakte Zeit-Spiegel (ease-in <-> ease-out): bei t=0.5 sind
-## ALTE und NEUE auf demselben Zoom -> "gleiche z-Position bei 50 %".
-## Beide Ebenen bleiben stets zoom >= 1 -> decken immer den ganzen Schirm.
+## TRANSITION (both backgrounds run live, symmetrically over TRANSITION_TIME):
+##   - old layer: zoom 1.0 -> ZOOM_SPAN (moves into camera, ease-in)  + fade 1 -> 0
+##   - new layer: zoom ZOOM_SPAN -> 1.0 (pulls back from zoom, ease-out) + fade 0 -> 1
+## Both zoom paths are exact time mirrors (ease-in <-> ease-out): at t=0.5 OLD and
+## NEW are at the same zoom -> "same z-position at 50%".
+## Both layers always stay zoom >= 1 -> always cover the full screen.
 ##
-## COMPOSITING: ADDITIV mit komplementaeren Gewichten (fade_out + fade_in == 1).
-## result = alt*(1-t) + neu*t  -> echte Linear-Mischung, Luminanz bleibt erhalten:
-## KEIN Helligkeits-Einbruch / kein durchscheinendes Schwarz in der Mitte (anders als
-## bei 'over', wo zwei 50%-Ebenen nur 75 % Deckung ergeben). Bei t=0.5 ist jede Ebene
-## echt auf 50 % Alpha. Die Fades nutzen sine ease-in-out -> der Cross-Punkt liegt
-## exakt bei 50 %, wird aber zuegig durchschritten (kein traeges Auf-/Ueberblenden).
+## COMPOSITING: ADDITIVE with complementary weights (fade_out + fade_in == 1).
+## result = old*(1-t) + new*t  -> true linear blend, luminance is preserved:
+## NO brightness dip / no transparent black showing through in the middle (unlike
+## 'over', where two 50% layers give only 75% coverage). At t=0.5 each layer is
+## truly at 50% alpha. The fades use sine ease-in-out -> the crossover point is
+## exactly at 50%, but is traversed briskly (no sluggish fade-up/fade-over).
 ##
-## active_changed(root) feuert nach jedem Wechsel -> die UI befuellt sich daraus neu.
+## active_changed(root) fires after each switch -> the UI rebuilds itself from it.
 
 signal active_changed(root: Node)
-## Feuert, wenn sich das Seitenverhaeltnis der Render-Flaeche aendert (Fenster-Resize,
-## SPAN/PREVIEW-Umschaltung, Render-Size-Override). 3D-Module skalieren daraufhin ihre
-## horizontale Geometrie-Ausdehnung, damit der Inhalt die Breite fuellt statt in der
-## Mitte zu clustern (breite/Wand-Aufloesungen). Basis-Aspekt ist 16:9 (Fenster-Default).
+## Fires when the aspect ratio of the render area changes (window resize,
+## SPAN/PREVIEW switch, render-size override). 3D modules then scale their
+## horizontal geometry extent so content fills the width instead of clustering
+## in the centre (wide/wall resolutions). Base aspect is 16:9 (window default).
 signal aspect_changed(aspect: float)
 
-## Aspekt, fuer den die Module getuned sind (1920x1080). Bei diesem Wert ist der
-## Breiten-Multiplikator exakt 1.0.
+## Aspect ratio for which the modules are tuned (1920x1080). At this value the
+## width multiplier is exactly 1.0.
 const BASE_ASPECT := 16.0 / 9.0
 
 const SCENES := [
@@ -46,19 +46,19 @@ const SCENES := [
 	"res://quantum.tscn",
 ]
 const SCENE_LABELS := ["Tunnel", "Wave", "Stripes", "Lines", "Plexus", "Cubic", "Structure", "SmoothWave", "Quantum"]
-const TRANSITION_TIME := 1.2   # Default; zur Laufzeit ueber transition_time anpassbar.
-const ZOOM_SPAN := 2.0   # Symmetrischer Zoom-Hub: alt 1->ZOOM_SPAN, neu ZOOM_SPAN->1.
-						 # Beide bleiben >= 1 -> stets volle Deckung (nie schwarze Raender).
+const TRANSITION_TIME := 1.2   # Default; adjustable at runtime via transition_time.
+const ZOOM_SPAN := 2.0   # Symmetric zoom range: old 1->ZOOM_SPAN, new ZOOM_SPAN->1.
+						 # Both stay >= 1 -> always full coverage (never black borders).
 
-# Laufzeit-Dauer der Transition (Sekunden); per RuntimeUI-Zahlenfeld einstellbar.
+# Runtime duration of the transition (seconds); adjustable via RuntimeUI number field.
 var transition_time := TRANSITION_TIME
 
-# Vollflaechiger Zoom/Fade-Shader fuer beide Ebenen. Bei zoom=1, fade=1 exakt das
-# unveraenderte Viewport-Bild (kein Pop am Anfang/Ende).
-# ADDITIV (blend_add): der Beitrag jeder Ebene ist rgb * (fade*inside). Da sich die
-# beiden Fades waehrend der Transition zu 1 ergaenzen, addieren sich die Ebenen zur
-# exakten Linear-Mischung -> keine 'over'-Deckungsluecke, also nie durchscheinendes
-# Schwarz in der Mitte. Im Ruhezustand (eine Ebene, fade=1) = unveraendertes Bild.
+# Full-screen zoom/fade shader for both layers. At zoom=1, fade=1 gives exactly the
+# unmodified viewport image (no pop at start/end).
+# ADDITIVE (blend_add): each layer's contribution is rgb * (fade*inside). Since the
+# two fades sum to 1 during the transition, the layers add up to an exact linear
+# blend -> no 'over' coverage gap, so never transparent black showing through in the
+# middle. At rest (one layer, fade=1) = unmodified image.
 const LAYER_SHADER := "shader_type canvas_item;
 render_mode blend_add;
 uniform float zoom = 1.0;
@@ -66,17 +66,17 @@ uniform float fade = 1.0;
 void fragment() {
 	vec2 uv = (UV - vec2(0.5)) / zoom + vec2(0.5);
 	vec2 cl = clamp(uv, vec2(0.0), vec2(1.0));
-	// Sicherheitsnetz: ausserhalb [0..1] (nur falls zoom < 1) transparent statt geklemmt.
-	// Im aktuellen Ablauf bleibt zoom stets >= 1, daher ist inside praktisch immer 1.
+	// Safety net: outside [0..1] (only if zoom < 1) transparent instead of clamped.
+	// In normal operation zoom stays >= 1, so inside is practically always 1.
 	float inside = step(uv.x, 1.0) * step(0.0, uv.x) * step(uv.y, 1.0) * step(0.0, uv.y);
 	vec4 c = texture(TEXTURE, cl);
 	COLOR = vec4(c.rgb, c.a * fade * inside);
 }"
 
-# Finaler On-Screen-Overlay auf die HDR-Master-Textur (enthaelt bereits das
-# additive Bloom des Master-WorldEnvironments): ACES-Tonemap -> Vignette -> Grain.
-# Entspricht dem Web-Tonemap (studio-v005.html:261-275): aces(scene+bloom), dann
-# Vignette und Grain.
+# Final on-screen overlay onto the HDR master texture (which already contains
+# the additive bloom from the master WorldEnvironment): ACES tonemap -> Vignette -> Grain.
+# Matches the web tonemap (studio-v005.html:261-275): aces(scene+bloom), then
+# Vignette and Grain.
 const OVERLAY_SHADER := "shader_type canvas_item;
 uniform float vignette : hint_range(0.0, 1.0) = 0.5;
 uniform float grain : hint_range(0.0, 0.3) = 0.0;
@@ -84,9 +84,9 @@ uniform float deband : hint_range(0.0, 4.0) = 1.0;
 uniform bool aces_enabled = true;
 vec3 aces(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-// STATISCHE IGN auf gefloorten Pixelkoordinaten — KEIN TIME-Term. Dieser
-// Present-Pass laeuft hinter dem TAA-Resolve, also flackert statisches
-// Screen-Space-Rauschen nicht. Animiert man es (wie der Grain), kriecht es.
+// STATIC IGN on floored pixel coordinates — NO TIME term. This present pass
+// runs after the TAA resolve, so static screen-space noise does not flicker.
+// Animating it (like Grain) would cause it to crawl.
 float ign(vec2 p) { p = floor(p); return fract(52.9829189 * fract(0.06711056 * p.x + 0.00583715 * p.y)); }
 void fragment() {
 	vec3 c = aces_enabled ? aces(texture(TEXTURE, UV).rgb) : texture(TEXTURE, UV).rgb;
@@ -96,8 +96,8 @@ void fragment() {
 	float g = hash(fract(UV * vec2(640.0, 360.0)) + TIME * 0.37) - 0.5;
 	float lum = dot(c, vec3(0.299, 0.587, 0.114));
 	c += g * grain * (1.0 + (1.0 - lum) * 1.5);
-	// Triangular-PDF-Dither (zwei dekorrelierte IGN-Samples) gegen 8-Bit-Banding
-	// des finalen Outputs. 'deband' = Amplitude in LSB (1.0 = +/-1 LSB).
+	// Triangular-PDF dither (two decorrelated IGN samples) against 8-bit banding
+	// of the final output. 'deband' = amplitude in LSB (1.0 = +/-1 LSB).
 	float tri = ign(FRAGCOORD.xy) + ign(FRAGCOORD.xy + vec2(11.0, 23.0)) - 1.0;
 	c += tri * (deband / 255.0);
 	COLOR = vec4(aces_enabled ? clamp(c, 0.0, 1.0) : max(c, 0.0), 1.0);
@@ -109,16 +109,16 @@ var _mats: Array[ShaderMaterial] = []
 var _roots: Array[Node] = [null, null]
 var _bg: ColorRect
 var _blackout: ColorRect
-var _active := 0          # aktiver Slot (0/1)
-var _scene_idx := 0       # Index in SCENES, der gerade aktiv ist
+var _active := 0          # active slot (0/1)
+var _scene_idx := 0       # index into SCENES that is currently active
 var _busy := false
-var _forced_size := Vector2i.ZERO   # != 0 -> SubViewports rendern in dieser (Wand-)Groesse
-var _last_aspect := 0.0             # zuletzt gemeldetes Render-Seitenverhaeltnis (Spam-Schutz)
+var _forced_size := Vector2i.ZERO   # != 0 -> SubViewports render at this (wall) size
+var _last_aspect := 0.0             # last reported render aspect ratio (spam guard)
 
-# --- S1: Master-Composite (Variante A) ---
-# Beide Layer-Rects werden in _master additiv in HDR-2D komponiert; dessen
-# WorldEnvironment liefert globalen Bloom (2D-HDR-Glow). _final liest die HDR-
-# Master-Textur und macht ACES-Tonemap + Vignette + Grain on-screen.
+# --- S1: Master-Composite (Variant A) ---
+# Both layer rects are composited additively in HDR-2D into _master; its
+# WorldEnvironment provides global bloom (2D-HDR-Glow). _final reads the HDR
+# master texture and applies ACES tonemap + Vignette + Grain on-screen.
 var _master: SubViewport
 var _final: TextureRect
 var _post_env: Environment
@@ -126,30 +126,31 @@ var _overlay_mat: ShaderMaterial
 
 
 func _ready() -> void:
-	layer = 0  # unter der UI (layer 100)
+	assert(SCENES.size() == SCENE_LABELS.size(), "SCENES and SCENE_LABELS must have equal length")
+	layer = 0  # below the UI (layer 100)
 	var vp_size := get_window().size
 
-	# --- Master-Composite-Viewport (Variante A) ---
-	# HDR-2D, eigener World -> isoliertes WorldEnvironment (nur Glow/Bloom). Hier
-	# komponieren die beiden Layer-Rects additiv; das Bloom wirkt global ueber die
-	# Mischung. _final liest die HDR-Master-Textur (ACES-Tonemap + Vignette + Grain).
+	# --- Master-Composite-Viewport (Variant A) ---
+	# HDR-2D, own world -> isolated WorldEnvironment (Glow/Bloom only). The two
+	# layer rects composite here additively; bloom acts globally across the blend.
+	# _final reads the HDR master texture (ACES tonemap + Vignette + Grain).
 	_master = SubViewport.new()
 	_master.own_world_3d = true
 	_master.transparent_bg = false
 	_master.size = vp_size
 	_master.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	_master.use_hdr_2d = true  # additive Ueberlappung > 1.0 -> echtes Bloom-Futter
-	_master.use_debanding = true  # flicker-freier Engine-Debander am Master-Tonemap
+	_master.use_hdr_2d = true  # additive overlap > 1.0 -> real bloom feed
+	_master.use_debanding = true  # flicker-free engine debander at master tonemap
 	add_child(_master)
 
-	# Schwarzer Hintergrund als Sicherheitsfond (im Master).
+	# Black background as safety fill (in the master).
 	_bg = ColorRect.new()
 	_bg.color = Color(0, 0, 0, 1)
 	_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_master.add_child(_bg)
 
-	# Globaler Post: WorldEnvironment im Master (Bloom/Glow ueber die Mischung).
+	# Global post: WorldEnvironment in the master (Bloom/Glow across the blend).
 	var we := WorldEnvironment.new()
 	_post_env = _make_post_env()
 	we.environment = _post_env
@@ -158,17 +159,17 @@ func _ready() -> void:
 	var shader := Shader.new()
 	shader.code = LAYER_SHADER
 
-	# Zwei Slots: je ein SubViewport (off-screen) + ein vollflaechiges TextureRect
-	# (im Master) mit Zoom-Shader.
+	# Two slots: one SubViewport (off-screen) + one full-screen TextureRect
+	# (in the master) with zoom shader each.
 	for i in range(2):
 		var vp := SubViewport.new()
 		vp.own_world_3d = true
 		vp.transparent_bg = false
 		vp.size = vp_size
-		vp.use_hdr_2d = true  # FP16-Target: Gradient bleibt bis zum Present-Pass
-							  # ungequantelt -> kein 8-Bit-Banding vor dem Compositing.
-		vp.use_debanding = true  # Engine-Debander am 3D-Tonemap (nach TAA-Resolve,
-								 # vor jeder 8-Bit-Quantisierung) -> flicker-frei.
+		vp.use_hdr_2d = true  # FP16 target: gradient stays unquantised until the
+							  # present pass -> no 8-bit banding before compositing.
+		vp.use_debanding = true  # Engine debander at 3D tonemap (after TAA resolve,
+								 # before any 8-bit quantisation) -> flicker-free.
 		vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
 		add_child(vp)
 		_vps.append(vp)
@@ -184,14 +185,14 @@ func _ready() -> void:
 		rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 		rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		rect.stretch_mode = TextureRect.STRETCH_SCALE
-		rect.texture_repeat = CanvasItem.TEXTURE_REPEAT_DISABLED  # Rand klemmen (dunkel)
+		rect.texture_repeat = CanvasItem.TEXTURE_REPEAT_DISABLED  # clamp edges (dark)
 		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		rect.material = mat
 		rect.visible = false
 		_master.add_child(rect)
 		_rects.append(rect)
 
-	# Finaler On-Screen-Rect: Master-Textur + Vignette/Grain.
+	# Final on-screen rect: master texture + Vignette/Grain.
 	_overlay_mat = ShaderMaterial.new()
 	var osh := Shader.new()
 	osh.code = OVERLAY_SHADER
@@ -217,8 +218,8 @@ func _ready() -> void:
 	_blackout.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_blackout)
 
-	# Auch das Haupt-Viewport (zeigt _final) debandet bekommen — falls die Engine
-	# den 2D-Present mit einbezieht. Schadet nicht, wenn es ein No-Op ist.
+	# Also debanding for the main viewport (displays _final) — in case the engine
+	# includes the 2D present. Harmless if it is a no-op.
 	var root_vp := get_viewport()
 	if root_vp != null:
 		root_vp.use_debanding = true
@@ -226,20 +227,20 @@ func _ready() -> void:
 	get_window().size_changed.connect(_on_window_resized)
 	RenderingServer.global_shader_parameter_set("sky_viewport_h", float(vp_size.y))
 
-	# Ersten Hintergrund laden und aktiv schalten.
+	# Load first background and make it active.
 	_scene_idx = 0
 	_active = 0
 	_load_into(0, SCENES[0])
 	_show_only(0)
 
 
-# Globales Post-Environment fuer den Master-Composite — NUR Bloom (2D-HDR-Glow).
-# Tonemap (ACES) + Vignette + Grain macht bewusst der Overlay-Shader (_final), da
-# auf ein kamera-loses 2D-Viewport nur das Glow zuverlaessig wirkt. Reihenfolge
-# entspricht dem Web: additives Bloom -> ACES -> Vignette/Grain.
+# Global post-environment for the master composite — Bloom ONLY (2D-HDR-Glow).
+# Tonemap (ACES) + Vignette + Grain are intentionally handled by the overlay shader
+# (_final), because on a camera-less 2D viewport only the glow works reliably. Order
+# matches the web: additive bloom -> ACES -> Vignette/Grain.
 func _make_post_env() -> Environment:
 	var e := Environment.new()
-	e.background_mode = Environment.BG_CANVAS   # 2D-Canvas ist die "Szene" des Masters
+	e.background_mode = Environment.BG_CANVAS   # 2D canvas is the master's "scene"
 	e.glow_enabled = true
 	e.glow_intensity = 1.4
 	e.glow_strength = 1.2
@@ -254,20 +255,20 @@ func _on_window_resized() -> void:
 	_apply_vp_size()
 
 
-# --------------------------------------------------------------- Oeffentliche API
+# --------------------------------------------------------------- Public API
 
 func active_root() -> Node:
 	return _roots[_active]
 
 
-# Index der gerade aktiven Szene in SCENES (fuer den Sequencer).
+# Index of the currently active scene in SCENES (for the Sequencer).
 func current_scene_index() -> int:
 	return _scene_idx
 
 
-# Wurzel-Knotenname von SCENES[idx], OHNE die Szene zu instanziieren (SceneState ist
-# billig). Entspricht active_scene_key() der laufenden Szene -> stabiler Schluessel,
-# ueber den der Sequencer ein Preset auf seine Szene abbildet.
+# Root node name of SCENES[idx], WITHOUT instantiating the scene (SceneState is
+# cheap). Matches active_scene_key() of the running scene -> stable key by which
+# the Sequencer maps a preset to its scene.
 func scene_key_for_index(idx: int) -> String:
 	if idx < 0 or idx >= SCENES.size():
 		return ""
@@ -278,7 +279,7 @@ func scene_key_for_index(idx: int) -> String:
 	return st.get_node_name(0) if st.get_node_count() > 0 else ""
 
 
-# Index der Szene mit diesem Wurzel-Namen (-1, wenn keine passt).
+# Index of the scene with this root name (-1 if none matches).
 func scene_index_for_key(key: String) -> int:
 	for i in range(SCENES.size()):
 		if scene_key_for_index(i) == key:
@@ -286,19 +287,19 @@ func scene_index_for_key(key: String) -> int:
 	return -1
 
 
-# Textur des fertig komponierten + getonemappten Master-Bildes (fuer die
-# Multi-Window-Vorschau). Vignette/Grain liegen erst im _final-Overlay und damit
-# bewusst NICHT in der Wand-Vorschau (sonst Vignette pro Einzelschirm).
+# Texture of the fully composited + tonemapped master image (for the
+# multi-window preview). Vignette/Grain are only in the _final overlay and
+# therefore intentionally NOT in the wall preview (otherwise vignette per screen).
 func active_texture() -> Texture2D:
 	return _master.get_texture()
 
 
-# Globales Post-Environment (Master) — vom RuntimeUI-Panel als POST-Zone genutzt.
+# Global post-environment (master) — used by the RuntimeUI panel as the POST zone.
 func post_environment() -> Environment:
 	return _post_env
 
 
-# Overlay-Material (Vignette/Grain) — vom RuntimeUI-Panel als POST-Regler genutzt.
+# Overlay material (Vignette/Grain) — used by the RuntimeUI panel as POST controls.
 func post_overlay() -> ShaderMaterial:
 	return _overlay_mat
 
@@ -306,6 +307,10 @@ func post_overlay() -> ShaderMaterial:
 func set_hdr_mode(enabled: bool) -> void:
 	if _overlay_mat != null:
 		_overlay_mat.set_shader_parameter("aces_enabled", not enabled)
+	for vp in _vps:
+		vp.use_hdr_2d = enabled
+	if _master != null:
+		_master.use_hdr_2d = enabled
 	get_viewport().use_hdr_2d = enabled
 	if DisplayServer.has_method("window_is_hdr_output_supported") \
 			and DisplayServer.call("window_is_hdr_output_supported"):
@@ -328,8 +333,8 @@ func get_blackout() -> float:
 	return _blackout.color.a if _blackout != null else 0.0
 
 
-# SubViewports unabhaengig von der Fenstergroesse in einer festen (Wand-)Aufloesung
-# rendern lassen -> das Bild entspricht dann dem Gesamt-Seitenverhaeltnis der Wand.
+# Render SubViewports at a fixed (wall) resolution independent of window size ->
+# the image then matches the total aspect ratio of the wall.
 func set_render_size_override(s: Vector2i) -> void:
 	_forced_size = s
 	_apply_vp_size()
@@ -340,8 +345,8 @@ func clear_render_size_override() -> void:
 	_apply_vp_size()
 
 
-## Debanding-Staerke des finalen Present-Pass in LSB (0 = aus, 1 = +/-1 LSB).
-## Statisches Triangular-PDF-Dither hinter dem TAA-Resolve -> flicker-frei.
+## Debanding strength of the final present pass in LSB (0 = off, 1 = +/-1 LSB).
+## Static triangular-PDF dither after the TAA resolve -> flicker-free.
 func set_deband(value: float) -> void:
 	if _overlay_mat != null:
 		_overlay_mat.set_shader_parameter("deband", value)
@@ -368,8 +373,8 @@ func _apply_vp_size() -> void:
 	_notify_aspect(s)
 
 
-## Aktuelles Seitenverhaeltnis der Render-Flaeche (Breite/Hoehe). Module lesen das
-## und skalieren ihre X-Ausdehnung mit aspect / BASE_ASPECT.
+## Current aspect ratio of the render area (width/height). Modules read this
+## and scale their X extent by aspect / BASE_ASPECT.
 func canvas_aspect() -> float:
 	var s: Vector2i = _forced_size if _forced_size != Vector2i.ZERO else get_window().size
 	if s.y <= 0:
@@ -377,8 +382,8 @@ func canvas_aspect() -> float:
 	return float(s.x) / float(s.y)
 
 
-## Breiten-Multiplikator fuer die aktuelle Render-Flaeche: 1.0 bei 16:9, groesser bei
-## breiteren (Wand-)Aufloesungen. Module multiplizieren ihre horizontale Ausdehnung damit.
+## Width multiplier for the current render area: 1.0 at 16:9, larger for wider
+## (wall) resolutions. Modules multiply their horizontal extent by this value.
 func width_factor() -> float:
 	return canvas_aspect() / BASE_ASPECT
 
@@ -393,17 +398,20 @@ func _notify_aspect(s: Vector2i) -> void:
 	aspect_changed.emit(a)
 
 
-# Naechste Szene in SCENES-Reihenfolge.
+# Advance to the next scene in SCENES order.
 func transition() -> void:
 	transition_to((_scene_idx + 1) % SCENES.size())
 
 
-# Gezielt zu SCENES[target_idx] wechseln. mode: "zoom" (Standard) oder "cross"
-# (reiner Crossfade ohne Zoom). Wird vom Sequencer mit per-Schritt-Modus aufgerufen.
+# Switch to SCENES[target_idx]. mode: "zoom" (default) or "cross"
+# (pure crossfade without zoom). Called by the Sequencer with per-step mode.
 func transition_to(target_idx: int, mode: String = "zoom") -> void:
 	if _busy or SCENES.size() < 2:
 		return
-	if target_idx < 0 or target_idx >= SCENES.size() or target_idx == _scene_idx:
+	if target_idx < 0 or target_idx >= SCENES.size():
+		return
+	if target_idx == _scene_idx:
+		active_changed.emit(active_root())  # unblock any awaiter; already on this scene
 		return
 	_busy = true
 	var nxt_idx := target_idx
@@ -411,11 +419,10 @@ func transition_to(target_idx: int, mode: String = "zoom") -> void:
 	var in_slot := 1 - _active
 	_load_into(in_slot, SCENES[nxt_idx])
 
-	# Gemerkte Parameter dieser Szene SOFORT auf die noch unsichtbare neue Ebene
-	# anwenden — vor dem Aufwaermframe. Sonst rendert die einkommende Szene zuerst die
-	# .tscn-Defaults und springt erst nach dem Wechsel (active_changed) auf die echten
-	# Werte -> sichtbares Hochrampen waehrend des Zooms. Jetzt zoomt sie direkt im
-	# Zielzustand herein.
+	# Apply this scene's cached parameters IMMEDIATELY to the still-invisible new layer
+	# — before the warmup frame. Otherwise the incoming scene first renders the
+	# .tscn defaults and jumps to the real values only after the switch (active_changed)
+	# -> visible ramping during the zoom. Now it zooms in directly in the target state.
 	_preapply_scene_params(_roots[in_slot])
 
 	var in_rect := _rects[in_slot]
@@ -435,17 +442,19 @@ func transition_to(target_idx: int, mode: String = "zoom") -> void:
 
 	var dur := maxf(0.05, transition_time)
 	var tw := create_tween().set_parallel(true)
+	# Fallback: reset _busy if tween is killed (scene reload / orphan) without firing finished.
+	get_tree().create_timer(dur + 1.0).timeout.connect(func() -> void: _busy = false)
 
 	if mode == "cross":
-		# Reiner Crossfade: kein Zoom, nur Fade.
+		# Pure crossfade: no zoom, just fade.
 		tw.tween_property(out_mat, "shader_parameter/fade", 0.0, dur) \
 			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 		tw.tween_property(in_mat, "shader_parameter/fade", 1.0, dur) \
 			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	else:
-		# Zoom/Push-Modus: alte Ebene faehrt in die Kamera (ease-in 1->ZOOM_SPAN),
-		# neue setzt sich gespiegelt heraus (ease-out ZOOM_SPAN->1). Bei t=0.5 liegen
-		# beide auf demselben Zoom. Additives Blending haelt Luminanz konstant.
+		# Zoom/push mode: old layer moves into the camera (ease-in 1->ZOOM_SPAN),
+		# new layer pulls back mirrored (ease-out ZOOM_SPAN->1). At t=0.5 both
+		# are at the same zoom. Additive blending keeps luminance constant.
 		in_mat.set_shader_parameter("zoom", ZOOM_SPAN)
 		tw.tween_property(out_mat, "shader_parameter/zoom", ZOOM_SPAN, dur) \
 			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
@@ -466,7 +475,7 @@ func transition_to(target_idx: int, mode: String = "zoom") -> void:
 # --------------------------------------------------------------- Intern
 
 func _finish_transition(out_slot: int, in_slot: int, nxt_idx: int) -> void:
-	# Abgefahrene Szene entladen, ihr Viewport schlaeft.
+	# Unload the departed scene, its viewport goes idle.
 	if _roots[out_slot] != null:
 		_roots[out_slot].queue_free()
 		_roots[out_slot] = null
@@ -481,9 +490,9 @@ func _finish_transition(out_slot: int, in_slot: int, nxt_idx: int) -> void:
 	active_changed.emit(active_root())
 
 
-# ParamStore die gemerkten scene/*+mat/*-Werte dieser Szene auf den frisch geladenen
-# (noch unsichtbaren) Root anwenden lassen, bevor er gerendert wird. No-op, wenn es
-# fuer die Szene noch keinen Cache gibt (erster Besuch) oder ParamStore fehlt.
+# Let ParamStore apply the cached scene/*+mat/* values for this scene to the freshly
+# loaded (still invisible) root before it renders. No-op if there is no cache entry
+# for this scene yet (first visit) or ParamStore is missing.
 func _preapply_scene_params(root: Node) -> void:
 	if root == null:
 		return
@@ -502,7 +511,7 @@ func _load_into(slot: int, path: String) -> void:
 	var inst := packed.instantiate()
 	_vps[slot].add_child(inst)
 	_roots[slot] = inst
-	# Kamera der Szene im eigenen Viewport aktiv schalten.
+	# Activate the scene's camera in its own viewport.
 	var cam := _find_camera(inst)
 	if cam != null:
 		cam.current = true
