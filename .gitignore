@@ -18,3 +18,7 @@ mono_crash.*.json
 
 # oh-my-claudecode session state
 .omc/
+
+# Build output
+BUILDED/
+*.exe
