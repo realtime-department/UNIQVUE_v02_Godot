@@ -591,53 +591,191 @@ func _layout_grid() -> void:
 		_push_pick(i, Vector3(cx, cy, 0.0), ch * ia, ch)
 
 
-# --- Coverflow (persp): zentrale Karte frontal, Nachbarn nach innen gedreht ---
+# --- Coverflow (persp): zentrales Slide + bis zu 2 Nachbarn je Seite ---
+# Portiert 1:1 aus slideshow-overlay-poc_19.html (layoutCoverflow). Sichtbare Nachbarn
+# (SIDE_MAX) und Spread sind adaptiv zum Slot-Aspekt; das ganze Arrangement wird so
+# geschrumpft, dass der breiteste projizierte Slide-Rand in die halbe Slot-Breite passt.
 func _layout_coverflow() -> void:
 	_hide_all()
 	var n := nv()
 	if loader.count() == 0 or n <= 0:
 		return
-	var spacing := 1.02
-	var depth := 0.62
-	var maxang := deg_to_rad(58.0)
-	var card_h := 1.5
+	var aspect := _aspect
+	var side_max := (1.0 if aspect < 0.8 else (1.5 if aspect < 1.2 else 2.0))
+	var spread_f := (0.42 if aspect < 0.8 else (0.50 if aspect < 1.2 else 0.60))
+	var base_h := 2.0 * 0.78
+	var base_w := base_h * SLIDE_ASPECT
+	if base_h > 2.0 * 0.82:
+		base_h = 2.0 * 0.82
+		base_w = base_h * SLIDE_ASPECT
+	# Finaler Fit: ueber die sichtbaren a-Werte den breitesten projizierten Rand finden
+	# und das GANZE Arrangement passend schrumpfen.
+	var worst := 0.0
+	var a := 1.0
+	while a <= side_max + 0.5 + 0.001:
+		worst = maxf(worst, _cf_ndc_right(a, base_w, spread_f, aspect))
+		a += 0.5
+	var limit := 0.98
+	if worst > limit:
+		var k := limit / worst
+		base_w *= k
+		base_h *= k
+	var spread := base_w * spread_f
 	for i in range(n):
 		var off := float(i) - anim_center
 		if state.loop:
-			var hn := float(n) * 0.5
-			while off > hn: off -= float(n)
-			while off < -hn: off += float(n)
-		if absf(off) > 3.3:
+			while off > float(n) / 2.0: off -= float(n)
+			while off < -float(n) / 2.0: off += float(n)
+		var aa := absf(off)
+		if aa > side_max + 0.6:
 			continue
-		var clamped := clampf(off, -1.0, 1.0)
-		var x := off * spacing
-		var zz := -absf(off) * depth
-		var ry := -clamped * maxang
-		if absf(off) > 1.0:
-			ry = -signf(off) * maxang
-		var op := clampf(1.25 - absf(off) * 0.34, 0.0, 1.0)
-		var center_amt := maxf(0.0, 1.0 - absf(off))
-		var hh := card_h * (1.0 + 0.14 * center_amt)
-		_place_card(i, Vector3(x, 0, zz + 0.25 * center_amt), Vector3(0, ry, 0), hh, op)
+		var sgn := (-1.0 if off < 0.0 else 1.0)
+		var x := sgn * (minf(aa, 1.0) * spread + (((aa - 1.0) * spread * 0.6) if aa > 1.0 else 0.0))
+		var z := -minf(aa, 3.0) * 0.5
+		var ry := -sgn * minf(aa, 1.0) * 0.85
+		var sc := maxf(0.6, 1.0 - 0.16 * aa)
+		# Tiefenstaffelung + weiches Ausblenden des aeussersten Slides.
+		var dim := 1.0 - minf(1.0, aa) * 0.32 - maxf(0.0, aa - 1.0) * 0.14
+		var fade_start := maxf(0.6, side_max - 0.4)
+		var fade_out := maxf(0.0, 1.0 - maxf(0.0, aa - fade_start) / 0.8)
+		var op := maxf(0.0, dim * fade_out)
+		_place_card(i, Vector3(x, 0, z), Vector3(0, ry, 0), base_h * sc, op)
+
+
+# Projizierter (perspektivischer) Bildrand der aeussersten Ecke eines Slides bei "abstand" a,
+# normalisiert auf die halbe Slot-Breite (NDC). Genau wie ndcRight() im HTML.
+func _cf_ndc_right(a: float, base_w: float, spread_f: float, aspect: float) -> float:
+	var pos_x := minf(a, 1.0) * base_w * spread_f + (((a - 1.0) * base_w * spread_f * 0.6) if a > 1.0 else 0.0)
+	var scl := maxf(0.6, 1.0 - 0.16 * a)
+	var cz := -minf(a, 3.0) * 0.5
+	var ry := -minf(a, 1.0) * 0.85
+	var hw := base_w * scl / 2.0
+	var tanh := tan(deg_to_rad(FOV) / 2.0)
+	var worst := 0.0
+	for s in [-1.0, 1.0]:
+		var wx: float = pos_x + s * hw * cos(ry)
+		var wz: float = cz - s * hw * sin(ry)
+		var half_w: float = (PERSP_DIST - wz) * tanh * aspect
+		worst = maxf(worst, absf(wx) / half_w)
+	return worst
 
 
 # --- Carousel (persp): Ring aus Karten, vorderste frontal ---
+# Portiert 1:1 aus slideshow-overlay-poc_19.html (layoutCarousel). Feste Winkel-Luecke
+# zwischen Slide-Kanten; Radius wird geloest, sodass alle Segmente + Luecken den Vollkreis
+# fuellen, dann auf Slot-Breite geschrumpft.
 func _layout_carousel() -> void:
 	_hide_all()
 	var n := nv()
 	if loader.count() == 0 or n <= 0:
 		return
-	var card_h := 1.4
-	var radius := maxf(2.3, float(n) * 0.5)
+	var aspect := _aspect
+	# Einzelner Slide: kein Ring, zentral darstellen (echtes Seitenverhaeltnis).
+	if n == 1:
+		var iw0: float = loader.slides[0].img_aspect
+		var bh1 := 2.0 * 0.82
+		var bw1 := bh1 * iw0
+		var maxw1 := 2.0 * aspect * 0.92
+		if bw1 > maxw1:
+			bw1 = maxw1
+			bh1 = bw1 / iw0
+		_place_card(0, Vector3.ZERO, Vector3.ZERO, bh1, 1.0)
+		return
+	var base_h := 2.0 * 0.82
+	var max_w := 2.0 * aspect * 0.56
+	var widest := 0.0
 	for i in range(n):
-		var off := float(i) - anim_center
-		if state.loop:
-			var hn := float(n) * 0.5
-			while off > hn: off -= float(n)
-			while off < -hn: off += float(n)
-		var ang := off / float(maxi(1, n)) * TAU
-		var x := sin(ang) * radius
-		var zz := cos(ang) * radius - radius   # vorne (ang=0) bei z=0, hinten ~ -2r
-		var ry := -ang
-		var op := clampf((zz / radius) + 1.05, 0.12, 1.0)
-		_place_card(i, Vector3(x, 0, zz), Vector3(0, ry, 0), card_h, op)
+		widest = maxf(widest, float(loader.slides[i].img_aspect))
+	if base_h * widest > max_w:
+		base_h = max_w / widest
+	var gap_ang := 0.13
+	# Mindestradius (Slides nicht groesser als der Ring) -> bei 2-3 Slides kein Kollaps.
+	var R := maxf(base_h * 1.3, _carousel_solve_r(n, base_h, gap_ang))
+	var ad := _carousel_build_angles(n, base_h, R, gap_ang)
+	var ang: Array = ad.ang
+	var span: float = ad.span
+	# centerAng EINMAL aus dem Start-Layout (wie const im HTML) — Fit-Schleife aktualisiert
+	# ang/span, aber nicht centerAng.
+	var center_ang := _carousel_ang_at(ang, span, anim_center, n)
+	for _it in range(60):
+		var worst := 0.0
+		for i in range(n):
+			var w: float = ang[i] - center_ang
+			worst = maxf(worst, _carousel_ndc_right_at(w, float(loader.slides[i].img_aspect), R, base_h, aspect))
+		if worst <= 0.98:
+			break
+		var k := 0.98 / worst
+		base_h *= k
+		R = maxf(base_h * 1.3, _carousel_solve_r(n, base_h, gap_ang))
+		ad = _carousel_build_angles(n, base_h, R, gap_ang)
+		ang = ad.ang
+		span = ad.span
+	var rot := _carousel_ang_at(ang, span, anim_center, n)
+	for i in range(n):
+		var w: float = ang[i] - rot
+		while w > PI: w -= TAU
+		while w < -PI: w += TAU
+		var iw: float = loader.slides[i].img_aspect
+		var x := sin(w) * R
+		var z := cos(w) * R - R
+		var facing := cos(w)
+		var op := (1.0 if facing >= 0.0 else 0.32)
+		_place_card(i, Vector3(x, 0, z), Vector3(0, w, 0), base_h, op)
+
+
+# Summe aller Slide-Winkelsegmente + Luecken bei Radius R.
+func _carousel_total_angle(n: int, base_h: float, R: float, gap_ang: float) -> float:
+	var s := 0.0
+	for i in range(n):
+		s += 2.0 * asin(minf(0.999, (base_h * float(loader.slides[i].img_aspect) / 2.0) / R)) + gap_ang
+	return s
+
+
+# Radius so loesen, dass alle Segmente + Luecken exakt 2π fuellen (Bisektion).
+func _carousel_solve_r(n: int, base_h: float, gap_ang: float) -> float:
+	var lo := base_h * 0.5
+	var hi := base_h * 300.0
+	for _it in range(80):
+		var mid := (lo + hi) / 2.0
+		if _carousel_total_angle(n, base_h, mid, gap_ang) > TAU:
+			lo = mid
+		else:
+			hi = mid
+	return (lo + hi) / 2.0
+
+
+# Absolute Winkelposition (Mitte) jedes Slides auf dem Ring + Gesamtspanne.
+func _carousel_build_angles(n: int, base_h: float, R: float, gap_ang: float) -> Dictionary:
+	var half_a: Array = []
+	for i in range(n):
+		half_a.append(asin(minf(0.999, (base_h * float(loader.slides[i].img_aspect) / 2.0) / R)))
+	var ang: Array = []
+	var acc := 0.0
+	for i in range(n):
+		ang.append(acc + half_a[i])
+		acc += 2.0 * half_a[i] + gap_ang
+	return {"ang": ang, "span": acc}
+
+
+# Winkelposition fuer (fraktionalen) anim_center: linear zwischen den Slide-Winkeln.
+func _carousel_ang_at(ang: Array, span: float, ac: float, n: int) -> float:
+	var i0 := int(floor(ac))
+	var f := ac - float(i0)
+	var a0: float = ang[((i0 % n) + n) % n]
+	var a1: float = ang[(((i0 + 1) % n) + n) % n]
+	var d := a1 - a0
+	if d < 0.0:
+		d += span
+	return a0 + d * f
+
+
+# Projizierter Bildrand eines Slides bei Ringwinkel w (Perspektive), NDC.
+func _carousel_ndc_right_at(w: float, iw: float, R: float, base_h: float, aspect: float) -> float:
+	var tanh := tan(deg_to_rad(FOV) / 2.0)
+	var cx := sin(w) * R
+	var cz := cos(w) * R - R
+	var dx := cos(w) * base_h * iw / 2.0
+	var dz := -sin(w) * base_h * iw / 2.0
+	var x1 := absf((cx - dx) / ((PERSP_DIST - (cz - dz)) * tanh * aspect))
+	var x2 := absf((cx + dx) / ((PERSP_DIST - (cz + dz)) * tanh * aspect))
+	return maxf(x1, x2)
