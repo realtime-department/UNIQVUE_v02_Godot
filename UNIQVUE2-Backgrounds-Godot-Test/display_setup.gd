@@ -37,19 +37,45 @@ var _windowed_rect := Rect2i(Vector2i(80, 80), Vector2i(1920, 1080))
 var _preview_windows: Array[Window] = []
 var _prev_embed := true
 
+# The display mode the live OUTPUT should use once playout starts. While the
+# launcher is up the app stays WINDOWED; start_playout() applies this. Resolved
+# at boot from CLI flags, the saved config, and the screen count.
+var _playout_mode := Mode.WINDOWED
+
 const CONFIG_PATH := "user://display_config.cfg"
 
 
 func _ready() -> void:
 	_load_config()
-	var cli := OS.get_cmdline_user_args() + OS.get_cmdline_args()
-	if cli.has("--windowed"):
-		restore_window()
-	elif cli.has("--span") or DisplayServer.get_screen_count() > 1:
-		span_screens()
-	else:
-		restore_window()
-		print("Display setup: single screen -> windowed. Control in panel under STAGE.")
+	# Launcher is shown first -> always boot WINDOWED. The decided live-output
+	# mode is held in _playout_mode and applied by start_playout(). persist=false
+	# so the saved live-output mode is preserved while in the launcher window.
+	restore_window(false)
+	print("Display setup: launcher -> windowed. Playout target: %s" % _mode_name(_playout_mode))
+
+
+func _mode_name(m: int) -> String:
+	match m:
+		Mode.SPAN: return "span"
+		Mode.PREVIEW: return "preview"
+		_: return "windowed"
+
+
+## Apply the resolved live-output mode. Called by the Launcher when Playout starts.
+func start_playout() -> void:
+	match _playout_mode:
+		Mode.SPAN:
+			span_screens()
+		Mode.PREVIEW:
+			open_preview()
+		_:
+			restore_window()
+
+
+## Re-lock to the launcher: drop back to a framed window (closes any preview/span).
+## persist=false keeps the saved live-output mode for the next playout.
+func enter_launcher() -> void:
+	restore_window(false)
 
 
 # --------------------------------------------------------------- Public API
@@ -97,14 +123,17 @@ func span_screens() -> void:
 	_save_config()
 
 
-func restore_window() -> void:
+func restore_window(persist := true) -> void:
 	close_preview()
 	var win := get_window()
 	win.borderless = false
 	win.size = _windowed_rect.size
 	win.position = _windowed_rect.position
 	_mode = Mode.WINDOWED
-	_save_config()
+	# Launcher gating passes persist=false so the saved live-output mode
+	# (e.g. SPAN) is not clobbered while we sit in the framed launcher window.
+	if persist:
+		_save_config()
 
 
 # ------------------------------------------------------- Multi-window preview
@@ -218,14 +247,19 @@ func _load_config() -> void:
 	screen_w = cfg.get_value("display", "screen_w", screen_w)
 	screen_h = cfg.get_value("display", "screen_h", screen_h)
 	var saved_mode: int = cfg.get_value("display", "mode", Mode.WINDOWED)
-	# Re-apply the saved mode on next frame (after all autoloads are ready)
-	call_deferred("_apply_saved_mode", saved_mode)
+	_playout_mode = _resolve_playout_mode(saved_mode)
 
-func _apply_saved_mode(saved_mode: int) -> void:
-	match saved_mode:
-		Mode.SPAN:
-			span_screens()
-		Mode.PREVIEW:
-			open_preview()
-		_:
-			pass  # WINDOWED is already default
+
+# Decide the live-output mode for playout: CLI flags win, then a saved
+# SPAN/PREVIEW, then auto (multi-screen -> span).
+func _resolve_playout_mode(saved_mode: int) -> int:
+	var cli := OS.get_cmdline_user_args() + OS.get_cmdline_args()
+	if cli.has("--windowed"):
+		return Mode.WINDOWED
+	if cli.has("--span"):
+		return Mode.SPAN
+	if saved_mode == Mode.SPAN or saved_mode == Mode.PREVIEW:
+		return saved_mode
+	if DisplayServer.get_screen_count() > 1:
+		return Mode.SPAN
+	return Mode.WINDOWED

@@ -28,6 +28,7 @@ RuntimeUI="*res://runtime_ui.gd"
 PerfMonitor="*res://perf_monitor.gd"
 SlotManager="*res://modules/slot_manager.gd"
 Agenda="*res://modules/agenda_manager.gd"
+Launcher="*res://launcher.gd"
 
 [display]
 
