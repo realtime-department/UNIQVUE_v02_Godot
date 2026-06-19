@@ -10,9 +10,11 @@ const HISTORY       := 120
 const GRAPH_W       := 38
 const BAR           := ["▁","▂","▃","▄","▅","▆","▇","█"]
 const POLL_INTERVAL := 2.0
+const ACCENT        := Color(1.0, 0.804, 0.0)
 
 # --- UI ---
 var _panel:    PanelContainer
+var _title:    Label
 var _label:    Label
 var _font_size := 10
 var _dragging  := false
@@ -70,14 +72,14 @@ func _build() -> void:
 	mf.font_names = PackedStringArray([
 		"Courier New", "Consolas", "Lucida Console", "DejaVu Sans Mono", "monospace"])
 
-	var title := Label.new()
-	title.text = "  PERF  [F1]  drag │ scroll: scale  "
-	title.add_theme_font_size_override("font_size", _font_size)
-	title.add_theme_font_override("font", mf)
-	title.add_theme_color_override("font_color", Color(0.42, 0.50, 0.60))
-	title.mouse_filter = Control.MOUSE_FILTER_STOP
-	title.gui_input.connect(_on_title_input)
-	vbox.add_child(title)
+	_title = Label.new()
+	_title.text = "  PERF  [F1]  drag │ scroll: scale  "
+	_title.add_theme_font_size_override("font_size", _font_size)
+	_title.add_theme_font_override("font", mf)
+	_title.add_theme_color_override("font_color", ACCENT)
+	_title.mouse_filter = Control.MOUSE_FILTER_STOP
+	_title.gui_input.connect(_on_title_input)
+	vbox.add_child(_title)
 
 	_label = Label.new()
 	_label.add_theme_font_size_override("font_size", _font_size)
@@ -413,10 +415,14 @@ func _on_label_input(event: InputEvent) -> void:
 		MOUSE_BUTTON_WHEEL_UP:
 			_font_size = mini(_font_size + 1, 24)
 			_label.add_theme_font_size_override("font_size", _font_size)
+			_title.add_theme_font_size_override("font_size", _font_size)
+			_panel.reset_size()
 			get_viewport().set_input_as_handled()
 		MOUSE_BUTTON_WHEEL_DOWN:
 			_font_size = maxi(_font_size - 1, 7)
 			_label.add_theme_font_size_override("font_size", _font_size)
+			_title.add_theme_font_size_override("font_size", _font_size)
+			_panel.reset_size()
 			get_viewport().set_input_as_handled()
 
 

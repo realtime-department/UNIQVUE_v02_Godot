@@ -14,6 +14,8 @@ var _agendas_box: VBoxContainer
 var _new_name: LineEdit
 var _agenda_name: LineEdit
 var _cur_label: Label
+var _dragging := false
+var _drag_off  := Vector2.ZERO
 
 
 func _ready() -> void:
@@ -23,6 +25,7 @@ func _ready() -> void:
 	_build_panel()
 	Agenda.state_changed.connect(_on_state_changed)
 	Agenda.agendas_changed.connect(_rebuild_agendas)
+	get_window().size_changed.connect(_on_window_resized)
 
 
 func on_opened() -> void:
@@ -32,6 +35,28 @@ func on_opened() -> void:
 
 func _on_state_changed() -> void:
 	_rebuild_list()
+
+
+func _on_window_resized() -> void:
+	if _panel == null:
+		return
+	var vp := get_viewport().get_visible_rect().size
+	var panel_h := maxf(400.0, vp.y - 32.0)
+	_panel.custom_minimum_size = Vector2(PANEL_W, panel_h)
+	_panel.size = Vector2(PANEL_W, panel_h)
+	_panel.position = _panel.position.clamp(Vector2.ZERO, (vp - _panel.size).max(Vector2.ZERO))
+
+
+func _on_title_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		_dragging = event.pressed
+		if _dragging:
+			_drag_off = _panel.position - event.global_position
+	elif event is InputEventMouseMotion and _dragging:
+		var vp := get_viewport().get_visible_rect().size
+		_panel.position = (event.global_position + _drag_off).clamp(
+			Vector2.ZERO, (vp - _panel.size).max(Vector2.ZERO))
+		get_viewport().set_input_as_handled()
 
 
 # ----------------------------------------------------------------- Theme
@@ -57,10 +82,15 @@ func _make_theme() -> Theme:
 # ----------------------------------------------------------------- Panel
 
 func _build_panel() -> void:
+	var vp := get_viewport().get_visible_rect().size
+	var panel_h := maxf(400.0, vp.y - 32.0)
+
 	_panel = PanelContainer.new()
 	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	_panel.set_anchors_preset(Control.PRESET_LEFT_WIDE)
-	_panel.offset_right = PANEL_W
+	_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_panel.custom_minimum_size = Vector2(PANEL_W, panel_h)
+	_panel.size = Vector2(PANEL_W, panel_h)
+	_panel.position = Vector2(16.0, 16.0)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.055, 0.065, 0.085, 0.98)
 	sb.border_color = Color(0.18, 0.21, 0.26)
@@ -69,9 +99,24 @@ func _build_panel() -> void:
 	_panel.add_theme_stylebox_override("panel", sb)
 	add_child(_panel)
 
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 4)
+	_panel.add_child(outer)
+
+	var drag_handle := Label.new()
+	drag_handle.text = "  AGENDA  ·  drag · A"
+	drag_handle.add_theme_font_size_override("font_size", 11)
+	drag_handle.add_theme_color_override("font_color", ACCENT)
+	drag_handle.mouse_filter = Control.MOUSE_FILTER_STOP
+	drag_handle.custom_minimum_size = Vector2(0, 22)
+	drag_handle.clip_text = true
+	drag_handle.gui_input.connect(_on_title_input)
+	outer.add_child(drag_handle)
+
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_panel.add_child(scroll)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	outer.add_child(scroll)
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_right", 18)
 	margin.add_theme_constant_override("margin_left", 2)
@@ -80,10 +125,8 @@ func _build_panel() -> void:
 	var v := VBoxContainer.new()
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.add_theme_constant_override("separation", 8)
-	v.custom_minimum_size = Vector2(PANEL_W - 64, 0)
 	margin.add_child(v)
 
-	_add_title(v, "AGENDA  ·  A")
 	_add_hint(v, "Click a cue to switch the show. Each cue = style + background + params + slot layout.")
 
 	# Transport.
@@ -190,7 +233,7 @@ func _make_entry_row(i: int, is_cur: bool) -> Control:
 	sp.min_value = 0.0; sp.max_value = 10.0; sp.step = 0.1
 	sp.value = float(e.get("trans", 1.2))
 	sp.custom_minimum_size = Vector2(64, 0)
-	sp.value_changed.connect(func(x): Agenda.set_entry_trans(i, x))
+	sp.value_changed.connect(func(x: float) -> void: Agenda.set_entry_trans(i, x))
 	bot.add_child(sp)
 	var rec := Button.new(); rec.text = "↻"; rec.tooltip_text = "Re-capture live state into this cue"
 	rec.pressed.connect(func(): Agenda.update_entry(i))

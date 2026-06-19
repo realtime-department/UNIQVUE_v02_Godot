@@ -18,6 +18,7 @@ const PANEL_HEIGHT := 780.0     # fixed total height (independent of content)
 const LABEL_WIDTH := 116.0
 const VALUE_WIDTH := 50.0
 const COL_MUTED := Color(0.62, 0.66, 0.72)
+const ACCENT    := Color(1.0, 0.804, 0.0)
 
 # Global post parameters (master environment, Bloom/Glow only): [property, min, max, step].
 # Tonemap/Vignette/Grain live in the overlay material (see _add_overlay_slider), not here.
@@ -77,6 +78,9 @@ func _on_window_resized() -> void:
 	if _panel == null:
 		return
 	var vp := get_viewport().get_visible_rect().size
+	var h := maxf(400.0, vp.y - 32.0)
+	_panel.custom_minimum_size = Vector2(PANEL_WIDTH, h)
+	_panel.size = Vector2(PANEL_WIDTH, h)
 	_panel.position = _panel.position.clamp(Vector2.ZERO, (vp - _panel.size).max(Vector2.ZERO))
 
 
@@ -88,12 +92,13 @@ func _build_chrome() -> void:
 	# Fixed total size for ALL scenes: width AND height are pinned, the
 	# scrollable control area (see below) absorbs any content amount -> no jumping
 	# of panel size on scene switch (e.g. when the scrollbar appears).
-	_panel.custom_minimum_size = Vector2(PANEL_WIDTH, PANEL_HEIGHT)
-	_panel.size = Vector2(PANEL_WIDTH, PANEL_HEIGHT)
 	_panel.clip_contents = true
 	_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	var vp := get_viewport().get_visible_rect().size
+	var _panel_h := maxf(400.0, vp.y - 32.0)
+	_panel.custom_minimum_size = Vector2(PANEL_WIDTH, _panel_h)
+	_panel.size = Vector2(PANEL_WIDTH, _panel_h)
 	_panel.position = Vector2(vp.x - PANEL_WIDTH - 16.0, 16.0)
 	_panel.add_theme_stylebox_override("panel", _panel_style())
 	add_child(_panel)
@@ -106,7 +111,7 @@ func _build_chrome() -> void:
 	_title = Label.new()
 	_title.text = "  UNIQVUE2   ·   drag · Tab"
 	_title.add_theme_font_size_override("font_size", 11)
-	_title.add_theme_color_override("font_color", COL_MUTED)
+	_title.add_theme_color_override("font_color", ACCENT)
 	_title.mouse_filter = Control.MOUSE_FILTER_STOP
 	_title.gui_input.connect(_on_title_input)
 	_title.custom_minimum_size = Vector2(0, 22)
