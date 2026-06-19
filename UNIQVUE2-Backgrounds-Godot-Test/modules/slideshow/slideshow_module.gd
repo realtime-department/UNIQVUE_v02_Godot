@@ -228,7 +228,7 @@ func _ease_io(x: float) -> float:
 
 
 func start_transition(target: int) -> bool:
-	if state.t < 1.0:
+	if state.t < 1.0 and not is_persp():
 		return false
 	var n := nv()
 	var tgt := target
@@ -332,7 +332,8 @@ func _process(delta: float) -> void:
 		state.cf_zoom_t = cf_target
 
 	# Auto-Run.
-	if state.auto_run and state.t >= 1.0 and not state.grid_zoom and not state.cf_zoom:
+	var _spring_done := not is_persp() or (absf(anim_center - float(state.index)) < 0.1 and absf(ac_vel) < 0.1)
+	if state.auto_run and state.t >= 1.0 and not state.grid_zoom and not state.cf_zoom and _spring_done:
 		state.auto_timer += dt
 		if state.auto_timer >= state.auto_run_seconds:
 			state.auto_timer = 0.0
@@ -505,7 +506,7 @@ func _place_main(slot: int, tex_idx: int, pos: Vector3, height: float, opacity: 
 	mat.set_shader_parameter("u_tex", loader.slides[tex_idx].tex)
 	mat.set_shader_parameter("u_img_aspect", ia)
 	mat.set_shader_parameter("u_quad_aspect", ia)
-	mat.set_shader_parameter("u_fit", 0.0)
+	mat.set_shader_parameter("u_fit", float(state.fit))
 	mat.set_shader_parameter("u_opacity", clampf(opacity, 0.0, 1.0))
 	mat.set_shader_parameter("u_blur", 0.0)
 
@@ -602,6 +603,10 @@ func _layout_coverflow() -> void:
 	var card_h := 1.5
 	for i in range(n):
 		var off := float(i) - anim_center
+		if state.loop:
+			var hn := float(n) * 0.5
+			while off > hn: off -= float(n)
+			while off < -hn: off += float(n)
 		if absf(off) > 3.3:
 			continue
 		var clamped := clampf(off, -1.0, 1.0)
@@ -622,10 +627,14 @@ func _layout_carousel() -> void:
 	var n := nv()
 	if loader.count() == 0 or n <= 0:
 		return
-	var radius := 2.3
 	var card_h := 1.4
+	var radius := maxf(2.3, float(n) * 0.5)
 	for i in range(n):
 		var off := float(i) - anim_center
+		if state.loop:
+			var hn := float(n) * 0.5
+			while off > hn: off -= float(n)
+			while off < -hn: off += float(n)
 		var ang := off / float(maxi(1, n)) * TAU
 		var x := sin(ang) * radius
 		var zz := cos(ang) * radius - radius   # vorne (ang=0) bei z=0, hinten ~ -2r

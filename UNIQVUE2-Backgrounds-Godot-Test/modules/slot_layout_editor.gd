@@ -18,7 +18,8 @@ const ACCENT := Color(1.0, 0.804, 0.0)        # RTD yellow
 const TEXT := Color(0.90, 0.93, 0.96)
 const MUTED := Color(0.58, 0.64, 0.72)
 const ModuleDragButtonScript := preload("res://modules/module_drag_button.gd")
-const SlotSettingsScript := preload("res://modules/slot_settings.gd")
+const SlotSettingsScript    := preload("res://modules/slot_settings.gd")
+const TextSettingsScript    := preload("res://modules/text/text_settings.gd")
 
 # Current zoom view in normalized wall space.
 var _view_origin := Vector2.ZERO
@@ -42,6 +43,7 @@ var _panel: PanelContainer
 var _sel_box: VBoxContainer
 var _count_label: Label
 var _slot_controls: VBoxContainer   # embedded slideshow settings widget
+var _text_controls: VBoxContainer   # embedded text settings widget
 var _layouts_box: VBoxContainer     # saved layout preset list
 var _layout_name: LineEdit
 var _w_spin: SpinBox
@@ -204,6 +206,10 @@ func _build_panel() -> void:
 	_slot_controls.visible = false
 	v.add_child(_slot_controls)
 
+	_text_controls = TextSettingsScript.new()
+	_text_controls.visible = false
+	v.add_child(_text_controls)
+
 	_refresh_count()
 	_rebuild_selected()
 
@@ -299,6 +305,8 @@ func _rebuild_selected() -> void:
 		_sel_box.add_child(l)
 		if _slot_controls:
 			_slot_controls.bind(-1, null)
+		if _text_controls:
+			_text_controls.bind(-1, null)
 		return
 
 	var info := Label.new()
@@ -360,10 +368,12 @@ func _rebuild_selected() -> void:
 		SlotManager.remove_slot(rid))
 	_sel_box.add_child(rm)
 
-	# Embedded slideshow controls for the selected slot's module (if assigned).
+	# Embedded module controls — each panel shows/hides itself by type.
+	var _bound_module = SlotManager.get_module(_selected_id) if s.module != "" else null
 	if _slot_controls:
-		var module = SlotManager.get_module(_selected_id) if s.module != "" else null
-		_slot_controls.bind(_selected_id, module)
+		_slot_controls.bind(_selected_id, _bound_module)
+	if _text_controls:
+		_text_controls.bind(_selected_id, _bound_module)
 
 
 func _on_slots_changed() -> void:

@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://modules/text/text_module.gd" id="1_text"]
+
+[node name="TextModule" type="SubViewport"]
+script = ExtResource("1_text")
+size = Vector2i(1920, 1080)
+transparent_bg = true

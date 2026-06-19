@@ -135,15 +135,17 @@ func _build_ui() -> void:
 
 
 # Point the widget at a slot's module and refresh all controls. module==null hides it.
+# Only visible for slideshow modules — other types have no controls here yet.
 func bind(id: int, module) -> void:
 	slot_id = id
-	if mod and mod.is_connected("slides_changed", _on_slides_changed):
+	if mod and mod.has_signal("slides_changed") and mod.is_connected("slides_changed", _on_slides_changed):
 		mod.disconnect("slides_changed", _on_slides_changed)
 	mod = module
-	visible = module != null
-	if mod and not mod.is_connected("slides_changed", _on_slides_changed):
-		mod.slides_changed.connect(_on_slides_changed)
-	if mod:
+	var is_slideshow: bool = module != null and module.has_method("load_image_paths")
+	visible = is_slideshow
+	if is_slideshow:
+		if not mod.is_connected("slides_changed", _on_slides_changed):
+			mod.slides_changed.connect(_on_slides_changed)
 		_refresh_from_module()
 
 

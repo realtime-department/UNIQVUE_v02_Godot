@@ -21,6 +21,11 @@ const MODULE_REGISTRY := {
 		"scene": "res://modules/slideshow/slideshow_module.tscn",
 		"color": Color(0.12, 0.43, 1.0),
 	},
+	"text": {
+		"name": "Text",
+		"scene": "res://modules/text/text_module.tscn",
+		"color": Color(0.95, 0.60, 0.10),
+	},
 }
 
 # Built-in split presets, expressed as a [cols, rows] grid over the WHOLE wall.
@@ -211,6 +216,11 @@ func _spawn_node(s: Dictionary) -> void:
 func _apply_state(module, st) -> void:
 	if module == null or typeof(st) != TYPE_DICTIONARY or st.is_empty():
 		return
+	# Module-driven path: module owns its own state schema.
+	if module.has_method("apply_state"):
+		module.apply_state(st)
+		return
+	# Slideshow legacy path.
 	for k in STATE_KEYS:
 		if st.has(k):
 			module.state[k] = st[k]
@@ -227,6 +237,11 @@ func _apply_state(module, st) -> void:
 func persist_slot_state(id: int, state) -> void:
 	var s := find_slot(id)
 	if s.is_empty():
+		return
+	# Module-driven path: prefer live capture over passed-in dict.
+	var node = get_module(id)
+	if node != null and node.has_method("capture_state"):
+		s["state"] = node.capture_state()
 		return
 	var snap := {}
 	for k in STATE_KEYS:
@@ -349,7 +364,9 @@ func capture_layout() -> Array:
 		var st: Dictionary = (s.get("state", {}) as Dictionary).duplicate(true)
 		if _nodes.has(s.id) and is_instance_valid(_nodes[s.id]):
 			var m = _nodes[s.id].get_module()
-			if m != null and "state" in m:
+			if m != null and m.has_method("capture_state"):
+				st = m.capture_state()
+			elif m != null and "state" in m:
 				for k in STATE_KEYS:
 					if m.state.has(k):
 						st[k] = m.state[k]
