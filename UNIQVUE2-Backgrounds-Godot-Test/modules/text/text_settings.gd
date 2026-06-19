@@ -16,6 +16,12 @@ var _refreshing := false
 
 # Content
 var _mode_opt:         OptionButton
+var _rich_bar:         Control        # formatting toolbar
+var _rich_size:        SpinBox
+var _rich_color:       ColorPickerButton
+var _preview:          RichTextLabel  # live rendered preview
+var _preview_bg:       ColorRect
+var _preview_box:      Control
 var _text_edit:        TextEdit       # static text (also cycle items — one per line)
 var _text_label:       Label          # changes to "Items (one per line)" in cycle mode
 # Mode-specific rows (shown/hidden by _update_mode_rows)
@@ -82,7 +88,12 @@ func _build_ui() -> void:
 	_text_edit = TextEdit.new()
 	_text_edit.custom_minimum_size = Vector2(0, 72)
 	_text_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	# Keep the selection alive when the user clicks a formatting button (otherwise
+	# clicking B/I/Size wipes the selection and the wrap targets nothing).
+	_text_edit.deselect_on_focus_loss_enabled = false
 	_text_edit.text_changed.connect(_on_text_changed)
+	# Ctrl+B / Ctrl+I / Ctrl+U toggle formatting on the selection.
+	_text_edit.gui_input.connect(_on_text_edit_gui_input)
 	add_child(_text_edit)
 
 	_lbl(self, "Mode")
@@ -92,6 +103,83 @@ func _build_ui() -> void:
 	_mode_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_mode_opt.item_selected.connect(_on_mode_changed)
 	add_child(_mode_opt)
+
+	# Formatting toolbar — select chars/lines above, then click. B/I/U/S toggle the tag;
+	# Size/Color replace any existing one (no nesting); ✕ strips all tags. Rich mode only.
+	_rich_bar = VBoxContainer.new()
+	_rich_bar.add_theme_constant_override("separation", 4)
+
+	# Row 1: toggles + clear.
+	var tb1 := HBoxContainer.new()
+	tb1.add_theme_constant_override("separation", 4)
+	_tag_btn(tb1, "B", "[b]", "[/b]")
+	_tag_btn(tb1, "I", "[i]", "[/i]")
+	_tag_btn(tb1, "U", "[u]", "[/u]")
+	_tag_btn(tb1, "S", "[s]", "[/s]")
+	var clrbtn := Button.new()
+	clrbtn.text = "✕ Clear"
+	clrbtn.focus_mode = Control.FOCUS_NONE
+	clrbtn.tooltip_text = "Remove all formatting from the selection (or all text)"
+	clrbtn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	clrbtn.pressed.connect(_clear_format)
+	tb1.add_child(clrbtn)
+	_rich_bar.add_child(tb1)
+
+	# Row 2: font size.
+	var tb2 := HBoxContainer.new()
+	tb2.add_theme_constant_override("separation", 6)
+	var szl := _lbl(tb2, "Size")
+	szl.custom_minimum_size = Vector2(34, 0)
+	_rich_size = SpinBox.new()
+	_rich_size.min_value = 8; _rich_size.max_value = 400; _rich_size.value = 72
+	_rich_size.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tb2.add_child(_rich_size)
+	var szbtn := Button.new()
+	szbtn.text = "Apply"
+	szbtn.focus_mode = Control.FOCUS_NONE
+	szbtn.pressed.connect(func(): _set_span_value("size", str(int(_rich_size.value))))
+	tb2.add_child(szbtn)
+	_rich_bar.add_child(tb2)
+
+	# Row 3: color.
+	var tb3 := HBoxContainer.new()
+	tb3.add_theme_constant_override("separation", 6)
+	var cl := _lbl(tb3, "Color")
+	cl.custom_minimum_size = Vector2(34, 0)
+	_rich_color = ColorPickerButton.new()
+	_rich_color.color = Color.WHITE
+	_rich_color.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_rich_color.custom_minimum_size = Vector2(0, 22)
+	tb3.add_child(_rich_color)
+	var clbtn := Button.new()
+	clbtn.text = "Apply"
+	clbtn.focus_mode = Control.FOCUS_NONE
+	clbtn.pressed.connect(func(): _set_span_value("color", _rich_color.color.to_html()))
+	tb3.add_child(clbtn)
+	_rich_bar.add_child(tb3)
+	add_child(_rich_bar)
+
+	# Live preview — renders the current text exactly as the wall will (BBCode, color,
+	# bold/italic, outline/shadow, alignment, bg). Godot has no editable rich-text
+	# widget, so this is the WYSIWYG surface; the editor above stays source-of-truth.
+	_lbl(self, "Preview")
+	_preview_box = Control.new()
+	_preview_box.custom_minimum_size = Vector2(0, 104)
+	_preview_box.clip_contents = true
+	_preview_bg = ColorRect.new()
+	_preview_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_preview_bg.color = Color(0.08, 0.09, 0.11)
+	_preview_box.add_child(_preview_bg)
+	_preview = RichTextLabel.new()
+	_preview.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_preview.bbcode_enabled = true
+	_preview.scroll_active = true
+	_preview.fit_content = false
+	_preview.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_preview.offset_left = 6; _preview.offset_top = 6
+	_preview.offset_right = -6; _preview.offset_bottom = -6
+	_preview_box.add_child(_preview)
+	add_child(_preview_box)
 
 	# Ticker row
 	_ticker_row = _build_slider_section("Scroll speed", 20.0, 400.0, 1.0, "px/s",
@@ -267,6 +355,8 @@ func _on_text_changed() -> void:
 		var lines := raw.split("\n", false)
 		mod.state.cycle_items = Array(lines)
 	else:
+		if mod.state.mode == "static":
+			_remap_spans(mod.state.text, raw)   # keep spans aligned to the edited text
 		mod.state.text = raw
 	mod._apply()
 	_persist()
@@ -349,6 +439,8 @@ func _refresh() -> void:
 	_bold_chk.button_pressed   = st.bold
 	_italic_chk.button_pressed = st.italic
 	_upper_chk.button_pressed  = st.uppercase
+	_rich_size.value           = st.font_size
+	_rich_color.color          = st.color
 
 	_outline_slider.value = st.outline_size
 	_outline_val.text     = "%dpx" % int(st.outline_size)
@@ -365,6 +457,7 @@ func _refresh() -> void:
 
 	_refresh_align()
 	_refreshing = false
+	_update_preview()
 
 
 func _refresh_align() -> void:
@@ -381,15 +474,24 @@ func _update_mode_rows(mode: String) -> void:
 	_cycle_row.visible     = mode == "cycle"
 	_clock_row.visible     = mode == "clock"
 	_countdown_row.visible = mode == "countdown"
+	# Inline formatting (spans) only applies to the static text block.
+	_rich_bar.visible      = mode == "static"
 
 
 func _update_text_label(mode: String) -> void:
-	_text_label.text = "Items (one per line)" if mode == "cycle" else "Text"
+	match mode:
+		"cycle":
+			_text_label.text = "Items (one per line)"
+		"static":
+			_text_label.text = "Text  (rich — select & format below)"
+		_:
+			_text_label.text = "Text"
 
 
 func _persist() -> void:
 	if mod:
 		SlotManager.persist_slot_state(slot_id, {})
+		_update_preview()
 
 
 # ---------------------------------------------------------------- Tiny builders
@@ -409,6 +511,243 @@ func _lbl(parent: Node, txt: String) -> Label:
 	l.add_theme_color_override("font_color", MUTED)
 	parent.add_child(l)
 	return l
+
+
+func _tag_btn(parent: Node, label: String, open: String, _close: String) -> void:
+	var t := open.substr(1, open.length() - 2)  # "[b]" -> "b"
+	var b := Button.new()
+	b.text = label
+	b.custom_minimum_size = Vector2(34, 0)
+	b.focus_mode = Control.FOCUS_NONE  # don't steal focus / clear the selection
+	b.tooltip_text = "Toggle %s on the selection" % label
+	b.pressed.connect(func(): _toggle_span(t))
+	parent.add_child(b)
+
+
+# ---------------------------------------------------------------- Inline spans
+# The editor holds PLAIN text; formatting is stored as character-range spans in
+# mod.state.spans and only turned into BBCode at render time (static mode only).
+
+# [start, end) of the current selection, or a zero-width range at the caret.
+func _sel_range() -> Vector2i:
+	if _text_edit.has_selection():
+		var a := _abs_offset(_text_edit.get_selection_from_line(), _text_edit.get_selection_from_column())
+		var b := _abs_offset(_text_edit.get_selection_to_line(), _text_edit.get_selection_to_column())
+		return Vector2i(mini(a, b), maxi(a, b))
+	var c := _abs_offset(_text_edit.get_caret_line(), _text_edit.get_caret_column())
+	return Vector2i(c, c)
+
+
+# Toggle a non-parametric type (b/i/u/s): remove if the whole selection already has it,
+# otherwise add.
+func _toggle_span(t: String) -> void:
+	if _refreshing or not mod or mod.state.mode != "static":
+		return
+	var r := _sel_range()
+	if r.x == r.y:
+		return
+	if _covered(r.x, r.y, t):
+		_remove_type(r.x, r.y, t)
+	else:
+		mod.state.spans.append({"s": r.x, "e": r.y, "t": t, "v": ""})
+		_normalize(t)
+	_commit_spans(r)
+
+
+# Set a parametric type (size/color): clear any existing run over the range, then add.
+func _set_span_value(t: String, v: String) -> void:
+	if _refreshing or not mod or mod.state.mode != "static":
+		return
+	var r := _sel_range()
+	if r.x == r.y:
+		return
+	_remove_type(r.x, r.y, t)
+	mod.state.spans.append({"s": r.x, "e": r.y, "t": t, "v": v})
+	_normalize(t)
+	_commit_spans(r)
+
+
+# Clear all formatting from the selection, or everything if nothing is selected.
+func _clear_format() -> void:
+	if _refreshing or not mod or mod.state.mode != "static":
+		return
+	var r := _sel_range()
+	if r.x == r.y:
+		mod.state.spans = []
+	else:
+		for t in ["b", "i", "u", "s", "size", "color"]:
+			_remove_type(r.x, r.y, t)
+	_commit_spans(r)
+
+
+func _covered(a: int, b: int, t: String) -> bool:
+	for i in range(a, b):
+		var hit := false
+		for sp in mod.state.spans:
+			if sp.t == t and int(sp.s) <= i and i < int(sp.e):
+				hit = true
+				break
+		if not hit:
+			return false
+	return b > a
+
+
+# Subtracts the range [a,b) from every span of type t (splitting where needed).
+func _remove_type(a: int, b: int, t: String) -> void:
+	var out: Array = []
+	for sp in mod.state.spans:
+		if sp.t != t or b <= int(sp.s) or a >= int(sp.e):
+			out.append(sp)
+			continue
+		if a > int(sp.s):
+			out.append({"s": sp.s, "e": a, "t": t, "v": sp.v})
+		if b < int(sp.e):
+			out.append({"s": b, "e": sp.e, "t": t, "v": sp.v})
+	mod.state.spans = out
+
+
+# Merges same-type, same-value spans that overlap or touch.
+func _normalize(t: String) -> void:
+	var same: Array = []
+	var rest: Array = []
+	for sp in mod.state.spans:
+		(same if sp.t == t else rest).append(sp)
+	same.sort_custom(func(x, y): return int(x.s) < int(y.s))
+	var merged: Array = []
+	for sp in same:
+		if not merged.is_empty():
+			var last = merged[-1]
+			if last.v == sp.v and int(sp.s) <= int(last.e):
+				last.e = maxi(int(last.e), int(sp.e))
+				continue
+		merged.append({"s": sp.s, "e": sp.e, "t": t, "v": sp.v})
+	mod.state.spans = rest + merged
+
+
+# Re-render + persist, then restore the selection (editor text is untouched).
+func _commit_spans(r: Vector2i) -> void:
+	mod._apply()
+	_persist()
+	var a := _pos_from_offset(r.x)
+	if r.x == r.y:
+		_text_edit.set_caret_line(a.x)
+		_text_edit.set_caret_column(a.y)
+	else:
+		var b := _pos_from_offset(r.y)
+		_text_edit.select(a.x, a.y, b.x, b.y)
+	_text_edit.grab_focus()
+
+
+# Shifts spans to track a text edit (diff old vs new by common prefix/suffix).
+func _remap_spans(old_text: String, new_text: String) -> void:
+	var spans: Array = mod.state.spans
+	if spans.is_empty():
+		return
+	var lo := old_text.length()
+	var ln := new_text.length()
+	var p := 0
+	while p < lo and p < ln and old_text[p] == new_text[p]:
+		p += 1
+	var so := lo
+	var sn := ln
+	while so > p and sn > p and old_text[so - 1] == new_text[sn - 1]:
+		so -= 1
+		sn -= 1
+	var edit_end := so          # end of removed region in old coords
+	var delta := sn - so        # net length change (= inserted - removed)
+	var out: Array = []
+	for sp in spans:
+		var s := int(sp.s)
+		var e := int(sp.e)
+		s = (s + delta) if s >= edit_end else mini(s, p)
+		e = (e + delta) if e >= edit_end else mini(e, p)
+		if e > s:
+			out.append({"s": s, "e": e, "t": sp.t, "v": sp.v})
+	mod.state.spans = out
+
+
+# Absolute character offset for a (line, column) position.
+func _abs_offset(line: int, col: int) -> int:
+	var off := 0
+	for i in range(line):
+		off += _text_edit.get_line(i).length() + 1   # +1 for the newline
+	return off + col
+
+
+# Inverse of _abs_offset: (line, column) for an absolute offset.
+func _pos_from_offset(off: int) -> Vector2i:
+	var line := 0
+	var rem := off
+	while line < _text_edit.get_line_count() - 1:
+		var ll := _text_edit.get_line(line).length()
+		if rem <= ll:
+			break
+		rem -= ll + 1
+		line += 1
+	return Vector2i(line, rem)
+
+
+# Ctrl+B / Ctrl+I / Ctrl+U shortcuts for the formatting tags.
+func _on_text_edit_gui_input(ev: InputEvent) -> void:
+	if not (ev is InputEventKey and ev.pressed and not ev.echo and ev.ctrl_pressed):
+		return
+	var t := ""
+	match ev.keycode:
+		KEY_B: t = "b"
+		KEY_I: t = "i"
+		KEY_U: t = "u"
+		_: return
+	_toggle_span(t)
+	_text_edit.accept_event()
+
+
+# Resolves the body string shown in the preview for the current mode.
+func _preview_body() -> String:
+	var st = mod.state
+	match st.mode:
+		"clock":
+			return mod._get_clock_text()
+		"countdown":
+			return mod._get_countdown_text()
+		"cycle":
+			var items: Array = st.cycle_items
+			return String(items[0]) if not items.is_empty() else ""
+	return st.text
+
+
+# Mirrors the module's styling onto the preview label so it renders like the wall.
+# Base font size is capped so the small panel stays readable; [font_size=N] runs
+# render at their literal size (the panel scrolls if they overflow).
+func _update_preview() -> void:
+	if not mod or _preview == null:
+		return
+	var st = mod.state
+	_preview.bbcode_enabled = true
+	_preview_bg.color = st.bg_color if st.bg_color.a > 0.0 else Color(0.08, 0.09, 0.11)
+
+	mod._rebuild_fonts()
+	_preview.add_theme_font_override("normal_font", mod._sys_font)
+	_preview.add_theme_font_override("bold_font", mod._sf_bold)
+	_preview.add_theme_font_override("italics_font", mod._sf_italic)
+	_preview.add_theme_font_override("bold_italics_font", mod._sf_bolditalic)
+	# All size slots match so [b]/[i] runs don't shrink to the default theme size.
+	var cap := clampi(int(st.font_size), 8, 30)
+	_preview.add_theme_font_size_override("normal_font_size", cap)
+	_preview.add_theme_font_size_override("bold_font_size", cap)
+	_preview.add_theme_font_size_override("italics_font_size", cap)
+	_preview.add_theme_font_size_override("bold_italics_font_size", cap)
+	_preview.add_theme_color_override("default_color", st.color)
+	_preview.add_theme_constant_override("outline_size", int(st.outline_size))
+	_preview.add_theme_color_override("font_outline_color", st.outline_color)
+	_preview.add_theme_constant_override("shadow_outline_size", int(st.shadow_size))
+	_preview.add_theme_color_override("font_shadow_color", st.shadow_color)
+	_preview.add_theme_constant_override("shadow_offset_x", int(st.shadow_offset.x))
+	_preview.add_theme_constant_override("shadow_offset_y", int(st.shadow_offset.y))
+
+	if st.mode == "static":
+		_preview.text = mod._rich_wrap(mod._spans_to_bbcode())
+	else:
+		_preview.text = mod._rich_wrap(mod._escape(mod._apply_case(_preview_body())))
 
 
 func _check(parent: Node, txt: String, cb: Callable) -> CheckButton:
