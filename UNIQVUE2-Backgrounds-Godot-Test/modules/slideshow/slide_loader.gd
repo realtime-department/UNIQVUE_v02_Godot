@@ -15,6 +15,12 @@ const VALID_EXT := ["png", "jpg", "jpeg", "webp", "bmp", "tga"]
 
 var store_path := "user://slides.json"
 
+# Shared decode cache: path -> {tex:ImageTexture, aspect:float}. Decoding an image from
+# disk + uploading the GPU texture is the dominant cost when (re)building a slide pool;
+# caching it means repeated cue/layout switches and slots that share an image reuse the
+# same texture instead of re-decoding every time. Read-only sharing is safe.
+static var _tex_cache := {}
+
 # Ein Slide: { path:String, tex:ImageTexture, img_aspect:float, name:String }
 var slides: Array = []
 
@@ -32,6 +38,9 @@ func _aspect_from_image(img: Image) -> float:
 
 # Einen einzelnen Pfad laden. Gibt das Slide-Dict zurueck oder null bei Fehler.
 func _load_one(path: String):
+	if _tex_cache.has(path):
+		var c = _tex_cache[path]
+		return {"path": path, "tex": c.tex, "img_aspect": c.aspect, "name": path.get_file()}
 	var img := Image.new()
 	var err := img.load(path)
 	if err != OK:
@@ -39,10 +48,12 @@ func _load_one(path: String):
 	var tex := ImageTexture.create_from_image(img)
 	if tex == null:
 		return null
+	var asp := _aspect_from_image(img)
+	_tex_cache[path] = {"tex": tex, "aspect": asp}
 	return {
 		"path": path,
 		"tex": tex,
-		"img_aspect": _aspect_from_image(img),
+		"img_aspect": asp,
 		"name": path.get_file(),
 	}
 

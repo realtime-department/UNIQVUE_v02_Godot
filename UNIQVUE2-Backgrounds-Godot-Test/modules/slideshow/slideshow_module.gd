@@ -77,6 +77,14 @@ var pick_targets: Array = []
 # Slot-Aspect. Im Standalone aus der SubViewport-Groesse. Default 16:9.
 var _aspect := 16.0 / 9.0
 
+# Idle-render throttle: a static slide does not need its SubViewport re-rendered every
+# frame. While nothing is animating, the viewport is set to UPDATE_DISABLED (the last
+# rendered frame stays on screen). _wake() re-arms it on any change (navigation, mode,
+# pool rebuild, slot resize). This is the main per-frame GPU saving with several
+# slideshow slots on screen at once.
+var _idle_frames := 0
+var _last_size := Vector2i.ZERO
+
 signal slides_changed(n: int)
 
 
@@ -155,6 +163,7 @@ func _rebuild_pool() -> void:
 	if anim_center > nv() - 1:
 		anim_center = state.index
 	emit_signal("slides_changed", n)
+	_wake()
 
 
 # Unshaded StandardMaterial3D. Transparenz-Default ist weiche Alpha, weil Slidedeck-
@@ -246,6 +255,7 @@ func start_transition(target: int) -> bool:
 	state.from_index = state.index
 	state.index = tgt
 	state.t = 0.0
+	_wake()
 	return true
 
 
@@ -258,6 +268,7 @@ func go_to(target: int) -> bool:
 	state.index = target
 	state.dir = 1 if target > state.from_index else -1
 	state.t = 0.0
+	_wake()
 	return true
 
 
@@ -277,6 +288,7 @@ func set_mode(m: String) -> void:
 	anim_center = state.index
 	ac_vel = 0.0
 	_update_camera()
+	_wake()
 
 
 # --- Laden (von UI aufgerufen) ---
@@ -303,6 +315,29 @@ func _hide_all() -> void:
 		m.visible = false
 
 
+# Re-arm the SubViewport so the next frames render again (after any visible change).
+func _wake() -> void:
+	_idle_frames = 0
+	render_target_update_mode = SubViewport.UPDATE_ALWAYS
+
+
+# True while any visible motion is in progress (slide transition, grid/coverflow zoom,
+# or the perspective spring). Auto-run is intentionally NOT included: the hold between
+# slides is static, and the auto_timer (advanced in _process regardless of render mode)
+# calls next() -> _wake() when it fires.
+func _is_animating() -> bool:
+	if state.t < 1.0:
+		return true
+	if state.grid_zoom or absf(state.grid_zoom_t) > 0.001:
+		return true
+	if state.cf_zoom or absf(state.cf_zoom_t) > 0.001:
+		return true
+	if is_persp():
+		if absf(anim_center - float(state.index)) > 0.004 or absf(ac_vel) > 0.05:
+			return true
+	return false
+
+
 # --- Render-Loop ---
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -315,6 +350,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	var dt := minf(0.05, delta)
+
+	# Slot was resized (reflow / aspect change) -> content must re-fit, so render again.
+	if size != _last_size:
+		_last_size = size
+		_wake()
 
 	if state.t < 1.0:
 		state.t = minf(1.0, state.t + dt / maxf(0.05, state.transition_time))
@@ -370,7 +410,19 @@ func _process(delta: float) -> void:
 			if anim_center >= n:
 				anim_center -= n
 
-	_layout()
+	# Throttle: only render this slot's viewport while something is animating. When
+	# static, render two settle frames (so the final image is in the texture) then stop
+	# updating until _wake() re-arms it. Main per-frame saving with multiple slots.
+	if _is_animating():
+		_idle_frames = 0
+		render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		_layout()
+	elif _idle_frames < 2:
+		_idle_frames += 1
+		render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		_layout()
+	elif render_target_update_mode != SubViewport.UPDATE_DISABLED:
+		render_target_update_mode = SubViewport.UPDATE_DISABLED
 
 
 func _layout() -> void:
@@ -485,10 +537,12 @@ func grid_press(idx: int) -> void:
 	state.from_index = idx
 	state.t = 1.0
 	state.grid_zoom = true
+	_wake()
 
 
 func grid_release() -> void:
 	state.grid_zoom = false
+	_wake()
 
 
 # Grosses Hauptbild der Gallery ueber eines der beiden MainPair-Quads (Crossfade).

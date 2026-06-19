@@ -61,6 +61,7 @@ var _editor_layer: CanvasLayer   # editor overlay (z=101)
 var _editor: Control
 
 var _layouts: Dictionary = {}    # name -> {slots:[...]} (persisted presets)
+var _layout_gen := 0             # supersede guard for staggered apply_layout
 
 signal slots_changed()           # data changed (add/remove/assign); UI rebuilds
 signal slot_rect_changed(id: int) # a single slot's rect moved/resized (live drag)
@@ -378,16 +379,29 @@ func capture_layout() -> Array:
 	return arr
 
 
+# Replace the live layout with a snapshot. Slots are spawned ONE PER FRAME (staggered)
+# so a multi-slot cue/layout does not instantiate every module — each does a synchronous
+# scene instantiation + disk image decode — in a single frame (the cause of the
+# transition hitch). A generation guard cancels an in-flight rebuild if a newer one starts.
 func apply_layout(arr) -> void:
+	_apply_layout_staggered(arr)
+
+
+func _apply_layout_staggered(arr) -> void:
+	_layout_gen += 1
+	var gen := _layout_gen
 	clear_slots()
 	if typeof(arr) != TYPE_ARRAY:
 		return
 	for item in arr:
+		if gen != _layout_gen:
+			return  # superseded by a newer apply_layout
 		if not can_add():
 			break
 		var ra = item.get("rect", [0, 0, 0.5, 0.5])
 		add_slot(_sanitize_rect(Rect2(ra[0], ra[1], ra[2], ra[3])),
 			String(item.get("module", "")), (item.get("state", {}) as Dictionary).duplicate(true))
+		await get_tree().process_frame
 
 
 # ---------------------------------------------------------------- Layout presets
